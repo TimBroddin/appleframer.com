@@ -19,8 +19,5 @@ Frame your Apple device screenshots with a beautiful device bezel. All processin
 - Install dependencies: `yarn install` or `npm install`
 - Start the dev server: `yarn dev` or `npm run dev`
 
-## Known Issues
-- **Preview Masking:** In the preview, the image is sometimes not masked correctly. However, the exported/downloaded image is always masked as expected.
-
 ## License
 [MIT License](LICENSE) - Copyright (c) 2025 Tim Broddin 
