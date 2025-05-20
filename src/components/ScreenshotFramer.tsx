@@ -231,7 +231,7 @@ const ScreenshotFramer = ({
     <div className="w-full max-w-6xl">
       { images.length === 0 && (
                 <div className="mb-8 px-2 py-5 bg-gradient-to-r from-gray-50 via-white to-gray-100 border border-gray-200 rounded-2xl shadow flex flex-col items-center text-center relative overflow-hidden">
-                <p className="text-base md:text-lg text-gray-700 max-w-3xl mx-auto mb-1">Frame your <span className="font-semibold text-black">iPhone</span>, <span className="font-semibold text-black">iPad</span>, and <span className="font-semibold text-black">Mac</span> screenshots in beautiful, realistic Apple device mockups.</p>
+                <p className="text-base md:text-lg text-gray-700 max-w-3xl mx-auto mb-1">Frame your <span className="font-semibold text-black">iPhone</span>, <span className="font-semibold text-black">iPad</span>, and <span className="font-semibold text-black">Apple Watch</span> screenshots in beautiful, realistic Apple device mockups.</p>
                 <p className="text-sm text-gray-500 max-w-xl mx-auto">Just upload your screenshots—AppleFramer auto-detects the device, supports batch processing, and lets you download your framed images individually or as a zip. Perfect for App Store, marketing, or portfolio use.</p>
               </div>
       )}

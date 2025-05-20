@@ -3,7 +3,7 @@
 Frame your Apple device screenshots with a beautiful device bezel. All processing happens locally—your images never leave your device. AppleFramer helps you showcase your screenshots beautifully for App Store, marketing, or portfolio use.
 
 ## Features
-- Frame iPhone, iPad, and Mac screenshots in realistic Apple device mockups
+- Frame iPhone, iPad, and Apple Watch screenshots in realistic Apple device mockups
 - Auto-detects device from screenshot size
 - Batch processing and download as zip
 - All processing happens locally in your browser (no uploads)

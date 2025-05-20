@@ -19,7 +19,6 @@ type DeviceType = {
 } | FrameCoordinates;
 
 export interface FramesData {
-  Mac: { [device: string]: DeviceType };
   AppleDevice: { [device: string]: DeviceType };
   iPad: { [device: string]: DeviceType };
   Watch: { [device: string]: DeviceType };
