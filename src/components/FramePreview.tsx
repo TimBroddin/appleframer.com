@@ -38,16 +38,12 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
       const frameName = frame.coordinates.name;
       const framePath = `/frames/${frameName}.png`;
       const maskPath = `/frames/${frameName}_mask.png`;
-      console.log(`Frame path = ${framePath}`)
-      console.log(`Mask path = ${maskPath}`)
+
       // Load all required images
       const [screenImg, frameImg] = await Promise.all([
         loadImage(imageUrl),
         loadImage(framePath)
       ]);
-
-      console.log(`Screen image = ${screenImg}`)
-      console.log(`Frame image = ${frameImg}`)
 
       // Try to load mask if it exists
       let maskImg: HTMLImageElement | null = null;
@@ -55,20 +51,15 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
         maskImg = await loadImage(maskPath);
       } catch {
         // Mask doesn't exist, continue without it
-        console.log('No mask found for this frame: ', maskPath);
       }
 
       // Set canvas dimensions based on the frame image
-      const maxWidth = forDownload ? frameImg.width : Math.min(800, window.innerWidth - 64);
-      const scale = maxWidth / frameImg.width;
-      
-      canvas.width = frameImg.width * scale;
-      canvas.height = frameImg.height * scale;
+      canvas.width = frameImg.width;
+      canvas.height = frameImg.height;
       
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-
       // Create a temporary canvas for the masked screenshot
       const tempCanvas = document.createElement('canvas');
       const tempCtx = tempCanvas.getContext('2d');
@@ -80,8 +71,8 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
 
       // Calculate screenshot position based on frame coordinates
       const { x, y } = frame.coordinates;
-      const screenshotX = parseInt(x) * scale;
-      const screenshotY = parseInt(y) * scale;
+      const screenshotX = parseInt(x);
+      const screenshotY = parseInt(y);
 
       // Draw and mask the screenshot
       if (maskImg) {
@@ -94,8 +85,8 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
         if (!maskCtx) return;
 
         // Set mask canvas size to match the screenshot dimensions
-        maskCanvas.width = screenImg.width * scale;
-        maskCanvas.height = screenImg.height * scale;
+        maskCanvas.width = screenImg.width;
+        maskCanvas.height = screenImg.height;
 
         // Draw mask at the right size
         maskCtx.drawImage(
@@ -114,16 +105,15 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
           screenImg,
           screenshotX,
           screenshotY,
-          screenImg.width * scale,
-          screenImg.height * scale
+          screenImg.width,
+          screenImg.height
         );
-
         // Get screenshot pixel data
         const imageData = tempCtx.getImageData(
           screenshotX,
           screenshotY,
-          screenImg.width * scale,
-          screenImg.height * scale
+          screenImg.width,
+          screenImg.height
         );
 
         // Apply mask - make pixels transparent where mask is black
@@ -142,16 +132,14 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
         ctx.drawImage(tempCanvas, 0, 0);
       } else {
         // If no mask, draw the screenshot directly
-        console.log(`Drawing screenshot directly`)
         ctx.drawImage(
           screenImg,
           screenshotX,
           screenshotY,
-          screenImg.width * scale,
-          screenImg.height * scale
+          screenImg.width,
+          screenImg.height
         );
       }
-      console.log(`Drawing frame image`)
       // Draw the frame image
       ctx.drawImage(
         frameImg,
@@ -212,10 +200,10 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative transition-all duration-300 transform hover:scale-[1.01]">
+      <div className="relative transition-all duration-300 transform hover:scale-[1.01] flex items-center justify-center">
         <canvas 
           ref={canvasRef} 
-          className="max-w-full h-auto shadow-xl rounded-3xl"
+          className="max-w-full w-auto max-h-[80vh] md:max-h-[calc(100vh-128px)] h-auto shadow-xl rounded-3xl"
         />
       </div>
       
