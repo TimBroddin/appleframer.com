@@ -3,9 +3,10 @@ import { Upload, Image as ImageIcon } from 'lucide-react';
 
 interface UploadZoneProps {
   onFilesSelected: (files: File[]) => void;
+  accept?: string;
 }
 
-const UploadZone = ({ onFilesSelected }: UploadZoneProps) => {
+const UploadZone = ({ onFilesSelected, accept = "image/*" }: UploadZoneProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -71,7 +72,7 @@ const UploadZone = ({ onFilesSelected }: UploadZoneProps) => {
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*"
+        accept={accept}
         className="hidden"
         onChange={handleFileInputChange}
       />
