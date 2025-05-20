@@ -1,0 +1,382 @@
+{
+  "Mac": {
+    "MacBook Pro": {
+      "2021": {
+        "14": {
+          "x": "460",
+          "y": "300",
+          "name": "MacBook Pro 2021 14",
+          "screenshotWidth": 3024
+        },
+        "16": {
+          "x": "442",
+          "y": "313",
+          "name": "MacBook Pro 2021 16",
+          "screenshotWidth": 3456
+        }
+      },
+      "2020": {
+        "13": {
+          "x": "620",
+          "y": "261",
+          "name": "MacBook Pro 13",
+          "screenshotWidth": 2560
+        }
+      }
+    },
+    "MacBook Air": {
+      "2022": {
+        "x": "330",
+        "y": "218",
+        "name": "MacBook Air 2022",
+        "screenshotWidth": 2560
+      },
+      "2020": {
+        "x": "620",
+        "y": "652",
+        "name": "MacBook Air 2020",
+        "screenshotWidth": 2560
+      }
+    },
+    "iMac": {
+      "2021": {
+        "x": "141",
+        "y": "161",
+        "name": "iMac 2021",
+        "screenshotWidth": 4480
+      }
+    }
+  },
+  "iPhone": {
+    "8": {
+      "Plus": {
+        "Portrait": {
+          "x": "100",
+          "y": "310",
+          "name": "iPhone 8 Plus Portrait",
+          "screenshotWidth": 1080
+        },
+        "Landscape": {
+          "x": "310",
+          "y": "100",
+          "name": "iPhone 8 Plus Landscape",
+          "screenshotWidth": 1920
+        }
+      },
+      "Standard": {
+        "Portrait": {
+          "x": "125",
+          "y": "334",
+          "name": "iPhone 8 and 2020 SE",
+          "screenshotWidth": 750
+        }
+      }
+    },
+    "11": {
+      "Pro Max": {
+        "Portrait": {
+          "x": "179",
+          "y": "155",
+          "name": "iPhone 11 Pro Max Portrait",
+          "screenshotWidth": 1242
+        },
+        "Landscape": {
+          "x": "155",
+          "y": "179",
+          "name": "iPhone 11 Pro Max Landscape",
+          "screenshotWidth": 2688
+        }
+      },
+      "Pro": {
+        "Portrait": {
+          "x": "238",
+          "y": "182",
+          "name": "iPhone 11 Pro Portrait",
+          "screenshotWidth": 1125
+        }
+      },
+      "Standard": {
+        "Portrait": {
+          "x": "86",
+          "y": "104",
+          "name": "iPhone 11 Portrait",
+          "screenshotWidth": 828
+        },
+        "Landscape": {
+          "x": "104",
+          "y": "86",
+          "name": "iPhone 11 Landscape",
+          "screenshotWidth": 1792
+        }
+      }
+    },
+    "12-13": {
+      "Pro Max": {
+        "Portrait": {
+          "y": "111",
+          "x": "108",
+          "name": "iPhone 12-13 Pro Max Portrait",
+          "screenshotWidth": 1284
+        },
+        "Landscape": {
+          "y": "108",
+          "x": "111",
+          "name": "iPhone 12-13 Pro Max Landscape",
+          "screenshotWidth": 2778
+        }
+      },
+      "Pro": {
+        "Portrait": {
+          "x": "115",
+          "y": "84",
+          "name": "iPhone 12-13 Pro Portrait",
+          "screenshotWidth": 1170
+        },
+        "Landscape": {
+          "x": "84",
+          "y": "115",
+          "name": "iPhone 12-13 Pro Landscape",
+          "screenshotWidth": 2532
+        }
+      },
+      "mini": {
+        "Portrait": {
+          "x": "80",
+          "y": "80",
+          "name": "iPhone 12-13 mini Portrait",
+          "screenshotWidth": 1080
+        },
+        "Landscape": {
+          "x": "80",
+          "y": "80",
+          "name": "iPhone 12-13 mini Landscape",
+          "screenshotWidth": 2340
+        }
+      }
+    },
+    "16": {
+      "Pro Max": {
+        "Portrait": {
+          "x": "75",
+          "y": "66",
+          "name": "iPhone 16 Pro Max Portrait",
+          "screenshotWidth": 1290
+        },
+        "Landscape": {
+          "x": "66",
+          "y": "75",
+          "name": "iPhone 16 Pro Max Landscape",
+          "screenshotWidth": 2796
+        }
+      },
+      "Pro": {
+        "Portrait": {
+          "y": "69",
+          "x": "72",
+          "name": "iPhone 16 Pro Portrait",
+          "screenshotWidth": 1179
+        },
+        "Landscape": {
+          "y": "72",
+          "x": "69",
+          "name": "iPhone 16 Pro Landscape",
+          "screenshotWidth": 2556
+        }
+      },
+      "Plus": {
+        "Portrait": {
+          "y": "87",
+          "x": "90",
+          "name": "iPhone 16 Plus Portrait",
+          "screenshotWidth": 1290
+        },
+        "Landscape": {
+          "y": "90",
+          "x": "87",
+          "name": "iPhone 16 Plus Landscape",
+          "screenshotWidth": 2796
+        }
+      },
+      "Standard": {
+        "Portrait": {
+          "x": "90",
+          "y": "90",
+          "name": "iPhone 16 Portrait",
+          "screenshotWidth": 1179
+        },
+        "Landscape": {
+          "x": "90",
+          "y": "90",
+          "name": "iPhone 16 Landscape",
+          "screenshotWidth": 2556
+        }
+      }
+    }
+  },
+  "iPad": {
+    "Pro": {
+      "2024": {
+        "13": {
+          "Portrait": {
+            "x": "118",
+            "y": "124",
+            "name": "iPad Pro 2024 13 Portrait",
+            "screenshotWidth": 2064
+          },
+          "Landscape": {
+            "x": "124",
+            "y": "118",
+            "name": "iPad Pro 2024 13 Landscape",
+            "screenshotWidth": 2752
+          }
+        },
+        "11": {
+          "Portrait": {
+            "x": "95",
+            "y": "95",
+            "name": "iPad Pro 2024 11 Portrait",
+            "screenshotWidth": 1668
+          },
+          "Landscape": {
+            "x": "110",
+            "y": "106",
+            "name": "iPad Pro 2024 11 Landscape",
+            "screenshotWidth": 2420
+          }
+        }
+      },
+      "2018-2021": {
+        "11": {
+          "Portrait": {
+            "x": "120",
+            "y": "120",
+            "name": "iPad Pro 2018-2021 11 Portrait",
+            "screenshotWidth": 1668
+          },
+          "Landscape": {
+            "x": "120",
+            "y": "120",
+            "name": "iPad Pro 2018-2021 11 Landscape",
+            "screenshotWidth": 2388
+          }
+        },
+        "12.9": {
+          "Portrait": {
+            "x": "120",
+            "y": "120",
+            "name": "iPad Pro 2018-2021 Portrait",
+            "screenshotWidth": 2048
+          },
+          "Landscape": {
+            "x": "120",
+            "y": "120",
+            "name": "iPad Pro 2018-2021 Landscape",
+            "screenshotWidth": 2732
+          }
+        }
+      }
+    },
+    "Air": {
+      "2020": {
+        "Portrait": {
+          "x": "139",
+          "y": "140",
+          "name": "iPad Air 2020 Portrait",
+          "screenshotWidth": 1640
+        },
+        "Landscape": {
+          "x": "140",
+          "y": "139",
+          "name": "iPad Air 2020 Landscape",
+          "screenshotWidth": 2360
+        }
+      }
+    },
+    "mini": {
+      "2021": {
+        "Portrait": {
+          "x": "146",
+          "y": "142",
+          "name": "iPad mini 2021 Portrait",
+          "screenshotWidth": 1488
+        },
+        "Landscape": {
+          "x": "142",
+          "y": "146",
+          "name": "iPad mini 2021 Landscape",
+          "screenshotWidth": 2266
+        }
+      }
+    },
+    "Standard": {
+      "2021": {
+        "Portrait": {
+          "x": "110",
+          "y": "250",
+          "name": "iPad 2021 Portrait",
+          "screenshotWidth": 1620
+        },
+        "Landscape": {
+          "x": "250",
+          "y": "110",
+          "name": "iPad 2021 Landscape",
+          "screenshotWidth": 2160
+        }
+      }
+    }
+  },
+  "Watch": {
+    "Ultra": {
+      "2024": {
+        "x": "95",
+        "y": "219",
+        "name": "Watch Ultra 2024",
+        "screenshotWidth": 410
+      }
+    },
+    "Series": {
+      "4": {
+        "44": {
+          "x": "66",
+          "y": "222",
+          "name": "Watch Series 4 44",
+          "screenshotWidth": 368
+        },
+        "40": {
+          "x": "114",
+          "y": "308",
+          "name": "Watch Series 4 40",
+          "screenshotWidth": 324
+        }
+      },
+      "7": {
+        "45": {
+          "x": "72",
+          "y": "188",
+          "name": "Watch Series 7 45",
+          "screenshotWidth": 396
+        },
+        "41": {
+          "x": "64",
+          "y": "165",
+          "name": "Watch Series 7 41",
+          "screenshotWidth": 352
+        }
+      },
+      "10": {
+        "46": {
+          "x": "72",
+          "y": "192",
+          "name": "Watch Series 10 46",
+          "screenshotWidth": 410
+        },
+        "42": {
+          "x": "63",
+          "y": "167",
+          "name": "Watch Series 10 42",
+          "screenshotWidth": 396
+        }
+      }
+    }
+  }
+}
