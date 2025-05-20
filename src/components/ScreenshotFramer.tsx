@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from "react";
-import { ImagePlus, Download, Trash2 } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { ImagePlus, Download, Trash2, Settings } from "lucide-react";
 import UploadZone from "./UploadZone";
 import FramePreview from "./FramePreview";
 import { DeviceFrame } from "../hooks/useFrames";
 import { toast } from "sonner";
 import JSZip from "jszip";
-import { ffmpegClient, fetchFile } from '../ffmpegClient';
+import { useFfmpeg } from '../contexts/FfmpegProvider';
+import FrameSettings from './FrameSettings';
+import LogModal from './LogModal';
 
 interface ScreenshotFramerProps {
   frames: DeviceFrame[];
@@ -25,20 +27,24 @@ const ScreenshotFramer = ({
   );
   const [selectedMediaIndex, setSelectedMediaIndex] = useState<number | null>(null);
   const [media, setMedia] = useState<Array<{ type: 'image' | 'video', file: File }>>([]);
-  const [isExtractingFrame, setIsExtractingFrame] = useState(false);
+  const {
+    isExtractingFrame,
+    isProcessingVideo,
+    ffmpegError,
+    videoFrameFile,
+    videoOutput,
+    ffmpegLog,
+    progress,
+    extractVideoFrame,
+    processVideoWithFrame,
+    setVideoOutput,
+    setVideoFrame,
+    setVideoFrameFile,
+  } = useFfmpeg();
   const [video, setVideo] = useState<File | null>(null);
-  const [videoOutput, setVideoOutput] = useState<Blob | null>(null);
-  const [isProcessingVideo, setIsProcessingVideo] = useState(false);
-  const [ffmpegError, setFfmpegError] = useState<string | null>(null);
-  const [videoFrame, setVideoFrame] = useState<Blob | null>(null);
-  const [videoFrameFile, setVideoFrameFile] = useState<File | null>(null);
-
-  // Update selectedFrame when frames are loaded
-  useEffect(() => {
-    if (frames.length > 0 && !selectedFrame) {
-      setSelectedFrame(frames[0]);
-    }
-  }, [frames, selectedFrame]);
+  const [showLogModal, setShowLogModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const downloadLinkRef = useRef<HTMLAnchorElement | null>(null);
 
   const findFrameByScreenshotSize = (
     frames: DeviceFrame[],
@@ -48,68 +54,12 @@ const ScreenshotFramer = ({
     return frames.find((frame: DeviceFrame) => {
       const fw = frame.coordinates.screenshotWidth;
       const fh = frame.coordinates.screenshotHeight;
-      return (
-        typeof fw === "number" &&
+      const matches = typeof fw === "number" &&
         typeof fh === "number" &&
         Math.abs(fw - width) <= TOLERANCE &&
-        Math.abs(fh - height) <= TOLERANCE
-      );
+        Math.abs(fh - height) <= TOLERANCE;
+      return matches;
     });
-  };
-
-  const extractVideoFrame = async (videoFile: File) => {
-    setIsExtractingFrame(true);
-    try {
-      console.log('resetting ffmpeg');
-      await ffmpegClient.reset();
-      console.log('loading ffmpeg');
-      await ffmpegClient.load();
-      console.log('writing file');
-      await ffmpegClient.writeFile('input.mp4', await fetchFile(videoFile));
-      console.log('executing ffmpeg');
-      // Extract the first frame as PNG
-      await ffmpegClient.exec([
-        "-i",
-        "input.mp4",
-        "-vframes",
-        "1",
-        "-f",
-        "image2",
-        "video.png"
-      ]);
-      console.log('reading file');
-      const frameData = await ffmpegClient.readFile('video.png');
-      console.log('creating blob');
-      const blob = new Blob([frameData as Uint8Array], { type: 'image/png' });
-      setVideoFrame(blob);
-      // Create a File from the Blob for consistent preview
-      const file = new File([blob], 'frame.png', { type: 'image/png' });
-      setVideoFrameFile(file);
-      // Auto-detect device frame
-      const img = new window.Image();
-      img.onload = () => {
-        const detectedFrame = findFrameByScreenshotSize(
-          frames,
-          img.width,
-          img.height
-        );
-        if (detectedFrame) {
-          setSelectedFrame(detectedFrame);
-          toast.success(
-            `Auto-detected: ${detectedFrame.coordinates.name} (${img.width}x${img.height}px)`
-          );
-        } else {
-          toast.warning(
-            `No matching device found for size ${img.width}x${img.height}px`
-          );
-        }
-      };
-      img.src = URL.createObjectURL(blob);
-    } catch (error) {
-      console.error('Error extracting video frame:', error);
-    } finally {
-      setIsExtractingFrame(false);
-    }
   };
 
   const handleFilesSelected = (files: File[]) => {
@@ -151,10 +101,36 @@ const ScreenshotFramer = ({
       setVideoOutput(null);
       setVideoFrame(null);
       setVideoFrameFile(null);
-      extractVideoFrame(videoFiles[0]);
+      extractVideoFrame(videoFiles[0], frames, findFrameByScreenshotSize, () => {});
+      // The actual detection will be handled in a useEffect below
       toast.info(`Video file selected: ${videoFiles[0].name}`);
     }
   };
+
+  // Auto-detect frame after video frame extraction
+  React.useEffect(() => {
+    if (videoFrameFile) {
+      const img = new window.Image();
+      img.onload = () => {
+        const detectedFrame = findFrameByScreenshotSize(
+          frames,
+          img.width,
+          img.height
+        );
+        if (detectedFrame) {
+          setSelectedFrame(detectedFrame);
+          toast.success(
+            `Auto-detected: ${detectedFrame.coordinates.name} (${img.width}x${img.height}px)`
+          );
+        } else {
+          toast.warning(
+            `No matching device found for size ${img.width}x${img.height}px`
+          );
+        }
+      };
+      img.src = URL.createObjectURL(videoFrameFile);
+    }
+  }, [videoFrameFile, frames]);
 
   const handleRemoveMedia = (index: number) => {
     setMedia((prev) => {
@@ -180,7 +156,7 @@ const ScreenshotFramer = ({
     if (media[index]?.type === 'video') {
       setVideo(media[index].file);
       // If frame not yet extracted, extract it
-      if (!videoFrame) extractVideoFrame(media[index].file);
+      if (!videoFrameFile) extractVideoFrame(media[index].file, frames, findFrameByScreenshotSize, setSelectedFrame);
     }
   };
 
@@ -309,123 +285,18 @@ const ScreenshotFramer = ({
     toast.success("Zip created successfully!");
   };
 
-  // Helper to get video duration
-  const getVideoDuration = (file: File): Promise<number> => {
-    return new Promise((resolve, reject) => {
-      const video = document.createElement('video');
-      video.preload = 'metadata';
-      video.onloadedmetadata = function() {
-        resolve(video.duration);
-      };
-      video.onerror = reject;
-      video.src = URL.createObjectURL(file);
-    });
-  };
-
-  // Helper to process video with frame overlay and mask using ffmpegClient
-  const processVideoWithFrame = async () => {
-    if (!video || !selectedFrame) return;
-    setIsProcessingVideo(true);
-    setFfmpegError(null);
-    try {
-      await ffmpegClient.reset();
-      await ffmpegClient.load();
-      await ffmpegClient.writeFile('input.mp4', await fetchFile(video));
-      // Write frame overlay
-      const frameName = selectedFrame.coordinates.name;
-      const framePath = `/frames/${frameName}.png`;
-      const frameResp = await fetch(framePath);
-      if (!frameResp.ok) throw new Error('Failed to fetch frame overlay image');
-      const frameBlob = await frameResp.blob();
-      await ffmpegClient.writeFile('frame.png', new Uint8Array(await frameBlob.arrayBuffer()));
-      // Try to write mask (optional)
-      let hasMask = false;
-      const maskPath = `/frames/${frameName}_mask.png`;
-      let maskBlob: Blob | null = null;
-      try {
-        const maskResp = await fetch(maskPath);
-        if (maskResp.ok) {
-          maskBlob = await maskResp.blob();
-          await ffmpegClient.writeFile('mask.png', new Uint8Array(await maskBlob.arrayBuffer()));
-          hasMask = true;
-        }
-      } catch {
-        // Mask doesn't exist or failed to fetch, continue without it
-      }
-      // Get coordinates for screenshot placement
-      const { x, y, screenshotWidth, screenshotHeight } = selectedFrame.coordinates;
-      if (typeof screenshotWidth !== 'number' || typeof screenshotHeight !== 'number') {
-        throw new Error('Frame coordinates missing screenshotWidth or screenshotHeight');
-      }
-      // Get video duration
-      const duration = await getVideoDuration(video);
-      // Compose ffmpeg filter
-      let filter;
-      if (hasMask) {
-        // 0: input.mp4, 1: frame.png, 2: mask.png
-        filter = `\
-          [0:v]format=rgba[vid]; \
-          [2][vid]alphamerge[masked]; \
-          color=color=0x00000000:size=${screenshotWidth}x${screenshotHeight}:d=${duration}[transparent]; \
-          [transparent][masked]overlay=0:0[placed]; \
-          color=color=0x00000000:size=${screenshotWidth + parseInt(x)}x${screenshotHeight + parseInt(y)}:d=${duration}[canvas]; \
-          [canvas][placed]overlay=${x}:${y}[screenshot_on_canvas]; \
-          [screenshot_on_canvas][1:v]overlay=0:0:format=auto[final]; \
-          [final]pad=width=ceil(iw/2)*2:height=ceil(ih/2)*2[out]`;
-      } else {
-        filter = `\
-          [0:v]format=rgba[vid]; \
-          color=color=0x00000000:size=${screenshotWidth + parseInt(x)}x${screenshotHeight + parseInt(y)}:d=${duration}[canvas]; \
-          [canvas][vid]overlay=${x}:${y}[screenshot_on_canvas]; \
-          [screenshot_on_canvas][1:v]overlay=0:0:format=auto[final]; \
-          [final]pad=width=ceil(iw/2)*2:height=ceil(ih/2)*2[out]`;
-      }
-      // Remove newlines and extra spaces for ffmpeg
-      filter = filter.replace(/\s+/g, ' ');
-      const args = hasMask
-        ? [
-            '-i', 'input.mp4',
-            '-i', 'frame.png',
-            '-i', 'mask.png',
-            '-filter_complex', filter,
-            '-map', '[out]',
-            '-map', '0:a?',
-            '-c:v', 'libx264',
-            '-c:a', 'copy',
-            '-shortest',
-            '-t', duration.toString(),
-            'output.mp4',
-          ]
-        : [
-            '-i', 'input.mp4',
-            '-i', 'frame.png',
-            '-filter_complex', filter,
-            '-map', '[out]',
-            '-map', '0:a?',
-            '-c:v', 'libx264',
-            '-c:a', 'copy',
-            '-shortest',
-            '-t', duration.toString(),
-            'output.mp4',
-          ];
-      console.log(args.join(' '));
-      const result = await ffmpegClient.exec(args);
-      console.log('ffmpeg result', result);
-
-      const data = await ffmpegClient.readFile('output.mp4');
-      const outBlob = new Blob([data as Uint8Array], { type: 'video/mp4' });
-      setVideoOutput(outBlob);
-      toast.success('Framed video created!');
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setFfmpegError(err.message);
-      } else {
-        setFfmpegError('Failed to process video');
-      }
-      toast.error('Failed to process video');
-    } finally {
-      setIsProcessingVideo(false);
+  // Watch for videoOutput changes and trigger download
+  useEffect(() => {
+    if (videoOutput && downloadLinkRef.current) {
+      console.log('Video output ready, downloading...');
+      downloadLinkRef.current.click();
     }
+  }, [videoOutput]);
+
+  const handleProcessVideoWithFrame = async () => {
+    if (!video || !selectedFrame) return;
+    await processVideoWithFrame({ video, selectedFrame });
+    setShowLogModal(false);
   };
 
   if (isLoading) {
@@ -443,17 +314,6 @@ const ScreenshotFramer = ({
       <div className="w-full max-w-6xl">
         <div className="bg-white rounded-xl shadow-xl p-8 text-center">
           <p className="text-red-500">Error loading frames: {error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  // If no frames or no selectedFrame, show the uploader
-  if (!frames.length || !selectedFrame) {
-    return (
-      <div className="w-full max-w-6xl">
-        <div className="bg-white rounded-xl shadow-xl overflow-hidden transition-all duration-300">
-          <UploadZone onFilesSelected={handleFilesSelected} />
         </div>
       </div>
     );
@@ -490,41 +350,14 @@ const ScreenshotFramer = ({
               ) : selectedMediaIndex !== null && media[selectedMediaIndex]?.type === 'video' && videoFrameFile ? (
                 <FramePreview
                   image={videoFrameFile}
-                  frame={selectedFrame}
+                  frame={selectedFrame!}
                 />
               ) : selectedMediaIndex !== null && media[selectedMediaIndex]?.type === 'image' ? (
                 <FramePreview
                   image={media[selectedMediaIndex].file}
-                  frame={selectedFrame}
+                  frame={selectedFrame!}
                 />
               ) : null}
-              {isProcessingVideo && media[selectedMediaIndex!]?.type === 'video' ? (
-                <div className="flex flex-col items-center justify-center w-full h-full min-h-[100px]">
-                  <div className="text-blue-600 font-medium text-lg mb-2">Processing video, please wait...</div>
-                  <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div>
-                </div>
-              ) : null}
-              {media[selectedMediaIndex!]?.type === 'video' && !isProcessingVideo && !isExtractingFrame && (
-                videoOutput ? (
-                  <a
-                    href={URL.createObjectURL(videoOutput)}
-                    download={`framed-${media[selectedMediaIndex!].file.name.replace(/\.[^/.]+$/, '')}.mp4`}
-                    className="w-full py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center transition-colors text-center mt-4"
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Download Framed Video
-                  </a>
-                ) : (
-                  <button
-                    className="w-full py-2 px-4 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors mt-4"
-                    onClick={processVideoWithFrame}
-                    disabled={isProcessingVideo || isExtractingFrame}
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Download Movie
-                  </button>
-                )
-              )}
               {ffmpegError && <div className="text-red-500 mt-2">{ffmpegError}</div>}
               {media[selectedMediaIndex!]?.type === 'video' && (
                 <button
@@ -536,6 +369,12 @@ const ScreenshotFramer = ({
                   Remove Video
                 </button>
               )}
+                <button
+                className="absolute top-4 right-4 p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
+                onClick={() => setShowSettings(s => !s)}
+              >
+                <Settings className="h-5 w-5 text-gray-600" />
+              </button>
             </div>
             <div className="w-full md:w-1/4 bg-gray-50 p-4 border-t md:border-t-0 md:border-l border-gray-200">
               <div className="flex justify-between items-center mb-4">
@@ -640,10 +479,63 @@ const ScreenshotFramer = ({
                   </button>
                 </div>
               )}
+              {/* Video processing controls */}
+              {selectedMediaIndex !== null && media[selectedMediaIndex]?.type === 'video' && (
+                <div className="mt-6 flex flex-col gap-3">
+                  <button
+                    className="w-full py-2 px-4 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                    onClick={handleProcessVideoWithFrame}
+                    disabled={isProcessingVideo || isExtractingFrame}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    {isProcessingVideo ? 'Processing...' : 'Download Framed Video'}
+                  </button>
+                  {(isProcessingVideo || progress > 0) && (
+                    <>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-blue-500 h-2 rounded-full transition-all"
+                          style={{ width: `${Math.round(progress * 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">Converting video in the browser is <b>very</b> slow. Please be patient. It will seem to hang, but give it a minute.</div>
+                      <button
+                        className="text-xs text-blue-500 underline mt-1"
+                        onClick={() => setShowLogModal(true)}
+                      >
+                        Show ffmpeg logs
+                      </button>
+                    </>
+                  )}
+                  {videoOutput && (
+                    <a
+                      ref={downloadLinkRef}
+                      href={URL.createObjectURL(videoOutput)}
+                      className="hidden"
+                      download={`framed-${media[selectedMediaIndex!].file.name.replace(/\.[^/.]+$/, '')}.mp4`}
+                    >
+                      Download
+                    </a>
+                  )}
+                </div>
+              )}
+              {/* Log Modal */}
+              <LogModal
+                isOpen={showLogModal}
+                onClose={() => setShowLogModal(false)}
+                logs={ffmpegLog || ''}
+              />
             </div>
           </div>
         )}
       </div>
+      {showSettings && selectedFrame && (
+        <FrameSettings
+          selectedFrame={selectedFrame}
+          setSelectedFrame={setSelectedFrame}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 };

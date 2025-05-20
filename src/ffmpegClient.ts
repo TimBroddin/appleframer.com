@@ -20,21 +20,24 @@ export class FFmpegClient {
    * Loads ffmpeg.wasm core and wasm from CDN. Call before using exec.
    * @param onProgress Optional progress callback
    */
-  async load(onProgress?: (progress: number, time: number) => void) {
+  async load(onProgress?: (progress: number, time: number) => void, onLog?: (message: string) => void) {
     if (this.loaded) return;
-    const baseURL = ' https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm';
-    if (onProgress) {
+    const baseURL = ' https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
       this.ffmpeg.on('progress', ({ progress, time }) => {
-        console.log('progress', progress, time);
-        onProgress(progress, time);
+        if(onProgress) {
+          onProgress(progress, time);
+        }
       });
-    }
+      this.ffmpeg.on('log', (message) => {
+        if(onLog) {
+          onLog(message.message);
+        }
+      });
     await this.ffmpeg.load({
       coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
       wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
     //  workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
     });
-    console.log('ffmpeg loaded');
     this.loaded = true;
   }
 
@@ -49,9 +52,7 @@ export class FFmpegClient {
    * Run an ffmpeg command (args as array)
    */
   async exec(args: string[]) {
-    console.log('executing ffmpeg', args);
     await this.ffmpeg.exec(args);
-    console.log('ffmpeg executed');
   }
 
   /**
