@@ -79,7 +79,7 @@ function flattenFramesData(data: FramesData): DeviceFrame[] {
         // Handle nested device variants
         Object.entries(models).forEach(([version, variants]) => {
           if (isFrameCoordinates(variants)) {
-            // Handle version without variants
+            // Handle version without variants (e.g., Mac > iMac > 2021)
             frames.push({
               id: `${category}-${deviceType}-${version}`,
               category,
@@ -89,22 +89,23 @@ function flattenFramesData(data: FramesData): DeviceFrame[] {
               coordinates: variants
             });
           } else if (isRecord(variants)) {
-            // Special case for Watch Ultra
-            if (category === 'Watch' && deviceType === 'Ultra') {
-              Object.entries(variants).forEach(([ver, coords]) => {
-                if (isFrameCoordinates(coords)) {
-                  frames.push({
-                    id: `${category}-${deviceType}-${ver}`,
-                    category,
-                    deviceType,
-                    model: deviceType,
-                    version: ver,
-                    coordinates: coords
-                  });
-                }
+            // First check if this is a version with direct coordinates
+            const hasDirectCoordinates = Object.entries(variants).some(([key, value]) => 
+              isFrameCoordinates(value) && (key === 'x' || key === 'y' || key === 'name')
+            );
+
+            if (hasDirectCoordinates && isFrameCoordinates(variants)) {
+              // Handle version with direct coordinates
+              frames.push({
+                id: `${category}-${deviceType}-${version}`,
+                category,
+                deviceType,
+                model: deviceType,
+                version,
+                coordinates: variants as FrameCoordinates
               });
             } else {
-              // Handle versions with variants
+              // Handle versions with variants or nested structures
               Object.entries(variants).forEach(([variant, orientations]) => {
                 if (isFrameCoordinates(orientations)) {
                   // Handle variant without orientation

@@ -90,20 +90,27 @@ const FrameSettings = ({
     setSelectedVersion(version);
     setSelectedVariant(null);
     
-    // If there's only one variant, select it automatically
-    const variants = frames
-      .filter(frame => 
-        frame.category === selectedCategory && 
-        frame.model === selectedModel &&
-        frame.version === version
-      )
-      .map(frame => frame.variant)
-      .filter((variant): variant is string => variant !== undefined);
-    
-    if (variants.length === 1) {
-      setSelectedVariant(variants[0]);
+    // Find matching frames for this version
+    const matchingFrames = frames.filter(frame => 
+      frame.category === selectedCategory && 
+      frame.model === selectedModel &&
+      frame.version === version
+    );
+
+    // If there's exactly one frame or the frames don't have variants, select it directly
+    if (matchingFrames.length === 1 || !matchingFrames.some(frame => frame.variant)) {
+      setSelectedFrame(matchingFrames[0]);
+    } else {
+      // If there are variants, let the variant selection handle it
+      const variants = matchingFrames
+        .map(frame => frame.variant)
+        .filter((variant): variant is string => variant !== undefined);
+      
+      if (variants.length === 1) {
+        setSelectedVariant(variants[0]);
+      }
     }
-  }, [frames, selectedCategory, selectedModel]);
+  }, [frames, selectedCategory, selectedModel, setSelectedFrame]);
 
   const handleVariantSelect = useCallback((variant: string) => {
     setSelectedVariant(variant);
@@ -144,9 +151,31 @@ const FrameSettings = ({
 
     // Auto-select first version if available
     if (versionsByModel.length > 0 && !selectedVersion) {
-      handleVersionSelect(versionsByModel[0]);
+      const version = versionsByModel[0];
+      setSelectedVersion(version);
+
+      // Find matching frames for this version
+      const matchingFrames = frames.filter(frame => 
+        frame.category === selectedCategory && 
+        frame.model === selectedModel &&
+        frame.version === version
+      );
+
+      // If there's exactly one frame or the frames don't have variants, select it directly
+      if (matchingFrames.length === 1 || !matchingFrames.some(frame => frame.variant)) {
+        setSelectedFrame(matchingFrames[0]);
+      } else {
+        // If there are variants, let the variant selection handle it
+        const variants = matchingFrames
+          .map(frame => frame.variant)
+          .filter((variant): variant is string => variant !== undefined);
+        
+        if (variants.length === 1) {
+          setSelectedVariant(variants[0]);
+        }
+      }
     }
-  }, [versionsByModel, isLoading, error, selectedVersion, handleVersionSelect]);
+  }, [versionsByModel, isLoading, error, selectedVersion, frames, selectedCategory, selectedModel, setSelectedFrame]);
 
   useEffect(() => {
     if (isLoading || error) return;
@@ -182,6 +211,25 @@ const FrameSettings = ({
       setSelectedVariant(selectedFrame.variant || null);
     }
   }, [selectedFrame]);
+
+  // Auto-select frame if all selections are made and only one frame matches
+  useEffect(() => {
+    if (isLoading || error) return;
+    if (!selectedCategory || !selectedModel || !selectedVersion) return;
+
+    // Find all frames matching the current selection
+    const matchingFrames = frames.filter(frame =>
+      frame.category === selectedCategory &&
+      frame.model === selectedModel &&
+      frame.version === selectedVersion &&
+      (selectedVariant ? frame.variant === selectedVariant : true)
+    );
+
+    // If only one frame matches and it's not already selected, select it
+    if (matchingFrames.length === 1 && selectedFrame?.id !== matchingFrames[0].id) {
+      setSelectedFrame(matchingFrames[0]);
+    }
+  }, [isLoading, error, selectedCategory, selectedModel, selectedVersion, selectedVariant, frames, selectedFrame, setSelectedFrame]);
 
   if (isLoading) {
     return (
