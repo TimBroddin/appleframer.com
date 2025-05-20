@@ -23,4 +23,4 @@ Frame your Apple device screenshots with a beautiful device bezel. All processin
 - **Preview Masking:** In the preview, the image is sometimes not masked correctly. However, the exported/downloaded image is always masked as expected.
 
 ## License
-[MIT License](LICENSE) - Copyright (c) 2024 Tim Broddin 
+[MIT License](LICENSE) - Copyright (c) 2025 Tim Broddin 
