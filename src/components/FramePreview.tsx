@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download } from 'lucide-react';
 import { DeviceFrame } from '../hooks/useFrames';
 
@@ -17,11 +17,6 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
     return () => URL.revokeObjectURL(url);
   }, [image]);
 
-  useEffect(() => {
-    if (!canvasRef.current || !imageUrl) return;
-    drawImageWithFrame();
-  }, [imageUrl, frame]);
-
   const loadImage = (src: string): Promise<HTMLImageElement> => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -31,7 +26,7 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
     });
   };
 
-  const drawImageWithFrame = async (forDownload = false) => {
+  const drawImageWithFrame = useCallback(async (forDownload = false) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -58,7 +53,7 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
       let maskImg: HTMLImageElement | null = null;
       try {
         maskImg = await loadImage(maskPath);
-      } catch (error) {
+      } catch {
         // Mask doesn't exist, continue without it
         console.log('No mask found for this frame: ', maskPath);
       }
@@ -168,7 +163,13 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
     } catch (error) {
       console.error('Error loading images:', error);
     }
-  };
+  }, [imageUrl, frame]);
+
+  useEffect(() => {
+    if (!canvasRef.current || !imageUrl) return;
+    drawImageWithFrame();
+  }, [imageUrl, frame, drawImageWithFrame]);
+
 
   const handleDownload = () => {
     if (!canvasRef.current) return;

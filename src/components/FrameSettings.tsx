@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, Smartphone, RotateCcw } from 'lucide-react';
 import { DeviceFrame, useFrames } from '../hooks/useFrames';
 
@@ -14,10 +14,10 @@ const FrameSettings = ({
   onClose 
 }: FrameSettingsProps) => {
   const { frames, isLoading, error } = useFrames();
-  const [selectedCategory, setSelectedCategory] = useState<string>('Apple Device');
-  const [selectedModel, setSelectedModel] = useState<string | null>('16');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
-  const [selectedVariant, setSelectedVariant] = useState<string | null>('Pro');
+  const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
 
   // Get unique categories
   const categories = Array.from(new Set(frames.map(frame => frame.category)));
@@ -69,71 +69,8 @@ const FrameSettings = ({
     );
   }, [frames, selectedCategory, selectedModel, selectedVersion, selectedVariant, versionsByModel]);
 
-  // Auto-select first options
-  useEffect(() => {
-    if (isLoading || error) return;
 
-    // Auto-select first model if none selected
-    if (modelsByCategory.length > 0 && !selectedModel) {
-      handleModelSelect(modelsByCategory[0]);
-    }
-  }, [modelsByCategory, isLoading, error]);
-
-  useEffect(() => {
-    if (isLoading || error) return;
-
-    // Auto-select first version if available
-    if (versionsByModel.length > 0 && !selectedVersion) {
-      handleVersionSelect(versionsByModel[0]);
-    }
-  }, [versionsByModel, isLoading, error]);
-
-  useEffect(() => {
-    if (isLoading || error) return;
-
-    // Auto-select first variant if available
-    if (variantsByVersion.length > 0 && !selectedVariant) {
-      handleVariantSelect(variantsByVersion[0]);
-    }
-  }, [variantsByVersion, isLoading, error]);
-
-  useEffect(() => {
-    if (isLoading || error) return;
-
-    // Auto-select first orientation if available
-    if (orientationsByVariant.length === 1) {
-      setSelectedFrame(orientationsByVariant[0]);
-    } else if (orientationsByVariant.length > 1) {
-      const portraitOption = orientationsByVariant.find(frame => frame.orientation === 'Portrait');
-      if (portraitOption) {
-        setSelectedFrame(portraitOption);
-      } else {
-        setSelectedFrame(orientationsByVariant[0]);
-      }
-    }
-  }, [orientationsByVariant, isLoading, error]);
-
-  if (isLoading) {
-    return (
-      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-20 animate-fadeIn">
-        <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-8 mx-4 animate-slideUp">
-          <p className="text-center text-gray-500">Loading available frames...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-20 animate-fadeIn">
-        <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-8 mx-4 animate-slideUp">
-          <p className="text-center text-red-500">Error loading frames: {error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  const handleModelSelect = (model: string) => {
+  const handleModelSelect = useCallback((model: string) => {
     setSelectedModel(model);
     setSelectedVersion(null);
     setSelectedVariant(null);
@@ -147,9 +84,9 @@ const FrameSettings = ({
     if (versions.length === 1) {
       setSelectedVersion(versions[0]);
     }
-  };
+  }, [frames, selectedCategory]);
 
-  const handleVersionSelect = (version: string) => {
+  const handleVersionSelect = useCallback((version: string) => {
     setSelectedVersion(version);
     setSelectedVariant(null);
     
@@ -166,9 +103,9 @@ const FrameSettings = ({
     if (variants.length === 1) {
       setSelectedVariant(variants[0]);
     }
-  };
+  }, [frames, selectedCategory, selectedModel]);
 
-  const handleVariantSelect = (variant: string) => {
+  const handleVariantSelect = useCallback((variant: string) => {
     setSelectedVariant(variant);
     
     // If there's only one orientation or no orientation needed, select the frame
@@ -190,8 +127,81 @@ const FrameSettings = ({
         setSelectedFrame(matchingFrames[0]);
       }
     }
-  };
+  }, [frames, selectedCategory, selectedModel, selectedVersion, versionsByModel, setSelectedFrame]);
 
+  // Auto-select first options
+  useEffect(() => {
+    if (isLoading || error) return;
+
+    // Auto-select first model if none selected
+    if (modelsByCategory.length > 0 && !selectedModel) {
+      handleModelSelect(modelsByCategory[0]);
+    }
+  }, [modelsByCategory, isLoading, error, selectedModel, handleModelSelect]);
+
+  useEffect(() => {
+    if (isLoading || error) return;
+
+    // Auto-select first version if available
+    if (versionsByModel.length > 0 && !selectedVersion) {
+      handleVersionSelect(versionsByModel[0]);
+    }
+  }, [versionsByModel, isLoading, error, selectedVersion, handleVersionSelect]);
+
+  useEffect(() => {
+    if (isLoading || error) return;
+
+    // Auto-select first variant if available
+    if (variantsByVersion.length > 0 && !selectedVariant) {
+      handleVariantSelect(variantsByVersion[0]);
+    }
+  }, [variantsByVersion, isLoading, error, selectedVariant, handleVariantSelect]);
+
+  useEffect(() => {
+    if (isLoading || error) return;
+
+    // Auto-select first orientation if available
+    if (orientationsByVariant.length === 1) {
+      setSelectedFrame(orientationsByVariant[0]);
+    } else if (orientationsByVariant.length > 1) {
+      const portraitOption = orientationsByVariant.find(frame => frame.orientation === 'Portrait');
+      if (portraitOption) {
+        setSelectedFrame(portraitOption);
+      } else {
+        setSelectedFrame(orientationsByVariant[0]);
+      }
+    }
+  }, [orientationsByVariant, isLoading, error, setSelectedFrame]);
+
+  // Sync state with selectedFrame when modal opens or selectedFrame changes
+  useEffect(() => {
+    if (selectedFrame) {
+      setSelectedCategory(selectedFrame.category || null);
+      setSelectedModel(selectedFrame.model || null);
+      setSelectedVersion(selectedFrame.version || null);
+      setSelectedVariant(selectedFrame.variant || null);
+    }
+  }, [selectedFrame]);
+
+  if (isLoading) {
+    return (
+      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-20 animate-fadeIn">
+        <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-8 mx-4 animate-slideUp">
+          <p className="text-center text-gray-500">Loading available frames...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-20 animate-fadeIn">
+        <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-8 mx-4 animate-slideUp">
+          <p className="text-center text-red-500">Error loading frames: {error}</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-20 animate-fadeIn">
       <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-8 mx-4 animate-slideUp">
@@ -325,7 +335,7 @@ const FrameSettings = ({
           )}
         </div>
         
-        <div className="mt-8 pt-6 border-t border-gray-200">
+        <div className="mt-8 pt-6 border-t border-gray-200 flex gap-4">
           <button
             onClick={onClose}
             className="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-base font-medium"

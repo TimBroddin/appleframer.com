@@ -5,6 +5,7 @@ export interface FrameCoordinates {
   y: string;
   name: string;
   screenshotWidth?: number;
+  screenshotHeight?: number;
 }
 
 type DeviceVariant = FrameCoordinates | {
