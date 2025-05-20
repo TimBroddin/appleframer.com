@@ -1,7 +1,9 @@
 {
   "name": "appleframer",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "homepage": "https://appleframer.com",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,6 +17,7 @@
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-github-btn": "^1.4.0",
     "sonner": "^2.0.3"
   },
   "devDependencies": {

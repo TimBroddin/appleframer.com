@@ -14,7 +14,10 @@ const Header = () => {
             </h1>
         </div>
         <div className="flex items-center gap-6">
-          <span className="text-sm text-gray-500">Process locally • No uploads  • Download as zip</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">Process locally • No uploads • Download as zip • <a href="https://github.com/timbroddin/appleframer.com" target="_blank" className="text-blue-500 hover:text-blue-600">Open source</a></span>
+           
+          </div>
         </div>
       </div>
     </header>
