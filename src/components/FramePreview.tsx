@@ -26,7 +26,7 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
     });
   };
 
-  const drawImageWithFrame = useCallback(async (forDownload = false) => {
+  const drawImageWithFrame = useCallback(async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -42,8 +42,11 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
       // Load all required images
       const [screenImg, frameImg] = await Promise.all([
         loadImage(imageUrl),
-        loadImage(framePath)
-      ]);
+        loadImage(framePath),
+      ]).catch(err => {
+        console.error('Error loading images:', err);
+        throw err;
+      });
 
       // Try to load mask if it exists
       let maskImg: HTMLImageElement | null = null;
