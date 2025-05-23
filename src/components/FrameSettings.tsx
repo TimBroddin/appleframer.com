@@ -251,145 +251,147 @@ const FrameSettings = ({
     );
   }
   return (
-    <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-20 animate-fadeIn">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-8 mx-4 animate-slideUp">
-        <div className="flex justify-between items-center mb-8">
-          <h3 className="text-xl font-medium">Frame Settings</h3>
-          <button 
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-          >
-            <X className="h-6 w-6 text-gray-500" />
-          </button>
-        </div>
-        
-        <div className="space-y-8">
-          {/* Device Category Selection */}
-          <div>
-            <h4 className="font-medium mb-4 text-lg">Device Type</h4>
-            <div className="grid grid-cols-4 gap-4">
-              {categories.map((category) => (
-                <button
-                  key={category}
-                  className={`p-4 rounded-lg border ${
-                    selectedCategory === category 
-                      ? 'border-blue-500 bg-blue-50' 
-                      : 'border-gray-200 hover:bg-gray-50'
-                  } transition-colors text-base`}
-                  onClick={() => {
-                    setSelectedCategory(category);
-                    setSelectedModel(null);
-                    setSelectedVersion(null);
-                    setSelectedVariant(null);
-                  }}
-                >
-                  {category}
-                </button>
-              ))}
-            </div>
+    <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-20 animate-fadeIn overflow-y-auto">
+      <div className="min-h-full flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-8 animate-slideUp my-8">
+          <div className="flex justify-between items-center mb-8">
+            <h3 className="text-xl font-medium">Frame Settings</h3>
+            <button 
+              onClick={onClose}
+              className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <X className="h-6 w-6 text-gray-500" />
+            </button>
           </div>
-
-          {/* Device Model Selection */}
-          {modelsByCategory.length > 0 && (
+          
+          <div className="space-y-8">
+            {/* Device Category Selection */}
             <div>
-              <h4 className="font-medium mb-4 text-lg">Device Model</h4>
-              <div className="grid grid-cols-2 gap-4 max-h-56 overflow-y-auto pr-2">
-                {modelsByCategory.map((model) => (
+              <h4 className="font-medium mb-4 text-lg">Device Type</h4>
+              <div className="grid grid-cols-4 gap-4">
+                {categories.map((category) => (
                   <button
-                    key={model}
-                    className={`p-4 rounded-lg border text-left ${
-                      selectedModel === model
-                        ? 'border-blue-500 bg-blue-50'
+                    key={category}
+                    className={`p-4 rounded-lg border ${
+                      selectedCategory === category 
+                        ? 'border-blue-500 bg-blue-50' 
                         : 'border-gray-200 hover:bg-gray-50'
-                    } transition-colors`}
-                    onClick={() => handleModelSelect(model)}
+                    } transition-colors text-base`}
+                    onClick={() => {
+                      setSelectedCategory(category);
+                      setSelectedModel(null);
+                      setSelectedVersion(null);
+                      setSelectedVariant(null);
+                    }}
                   >
-                    {model}
+                    {category}
                   </button>
                 ))}
               </div>
             </div>
-          )}
 
-          {/* Version Selection */}
-          {selectedModel && versionsByModel.length > 0 && (
-            <div>
-              <h4 className="font-medium mb-4 text-lg">Version</h4>
-              <div className="grid grid-cols-2 gap-4">
-                {versionsByModel.map((version) => (
-                  <button
-                    key={version}
-                    className={`p-4 rounded-lg border text-left ${
-                      selectedVersion === version
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    } transition-colors`}
-                    onClick={() => handleVersionSelect(version)}
-                  >
-                    {version}
-                  </button>
-                ))}
+            {/* Device Model Selection */}
+            {modelsByCategory.length > 0 && (
+              <div>
+                <h4 className="font-medium mb-4 text-lg">Device Model</h4>
+                <div className="grid grid-cols-2 gap-4 max-h-56 overflow-y-auto pr-2">
+                  {modelsByCategory.map((model) => (
+                    <button
+                      key={model}
+                      className={`p-4 rounded-lg border text-left ${
+                        selectedModel === model
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      } transition-colors`}
+                      onClick={() => handleModelSelect(model)}
+                    >
+                      {model}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Variant Selection */}
-          {variantsByVersion.length > 0 && (
-            <div>
-              <h4 className="font-medium mb-4 text-lg">Model</h4>
-              <div className="grid grid-cols-2 gap-4">
-                {variantsByVersion.map((variant) => (
-                  <button
-                    key={variant}
-                    className={`p-4 rounded-lg border text-left ${
-                      selectedVariant === variant
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    } transition-colors`}
-                    onClick={() => handleVariantSelect(variant)}
-                  >
-                    {variant}
-                  </button>
-                ))}
+            {/* Version Selection */}
+            {selectedModel && versionsByModel.length > 0 && (
+              <div>
+                <h4 className="font-medium mb-4 text-lg">Version</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  {versionsByModel.map((version) => (
+                    <button
+                      key={version}
+                      className={`p-4 rounded-lg border text-left ${
+                        selectedVersion === version
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      } transition-colors`}
+                      onClick={() => handleVersionSelect(version)}
+                    >
+                      {version}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Orientation Selection */}
-          {selectedVariant && orientationsByVariant.length > 1 && (
-            <div>
-              <h4 className="font-medium mb-4 text-lg">Orientation</h4>
-              <div className="grid grid-cols-2 gap-4">
-                {orientationsByVariant.map((frame) => (
-                  <button
-                    key={frame.id}
-                    className={`flex items-center justify-center p-4 rounded-lg ${
-                      selectedFrame.id === frame.id
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                    } transition-colors`}
-                    onClick={() => setSelectedFrame(frame)}
-                  >
-                    {frame.orientation === 'Portrait' ? (
-                      <Smartphone className="h-5 w-5 mr-2" />
-                    ) : (
-                      <RotateCcw className="h-5 w-5 mr-2" />
-                    )}
-                    <span className="text-base">{frame.orientation}</span>
-                  </button>
-                ))}
+            {/* Variant Selection */}
+            {variantsByVersion.length > 0 && (
+              <div>
+                <h4 className="font-medium mb-4 text-lg">Model</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  {variantsByVersion.map((variant) => (
+                    <button
+                      key={variant}
+                      className={`p-4 rounded-lg border text-left ${
+                        selectedVariant === variant
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      } transition-colors`}
+                      onClick={() => handleVariantSelect(variant)}
+                    >
+                      {variant}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-        
-        <div className="mt-8 pt-6 border-t border-gray-200 flex gap-4">
-          <button
-            onClick={onClose}
-            className="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-base font-medium"
-          >
-            Apply Settings
-          </button>
+            )}
+
+            {/* Orientation Selection */}
+            {selectedVariant && orientationsByVariant.length > 1 && (
+              <div>
+                <h4 className="font-medium mb-4 text-lg">Orientation</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  {orientationsByVariant.map((frame) => (
+                    <button
+                      key={frame.id}
+                      className={`flex items-center justify-center p-4 rounded-lg ${
+                        selectedFrame.id === frame.id
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                      } transition-colors`}
+                      onClick={() => setSelectedFrame(frame)}
+                    >
+                      {frame.orientation === 'Portrait' ? (
+                        <Smartphone className="h-5 w-5 mr-2" />
+                      ) : (
+                        <RotateCcw className="h-5 w-5 mr-2" />
+                      )}
+                      <span className="text-base">{frame.orientation}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="mt-8 pt-6 border-t border-gray-200 flex gap-4">
+            <button
+              onClick={onClose}
+              className="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-base font-medium"
+            >
+              Apply Settings
+            </button>
+          </div>
         </div>
       </div>
     </div>
