@@ -299,11 +299,25 @@ const ScreenshotFramer = ({
   const handleDownloadZip = async () => {
     toast.info("Creating a zip...");
     const zip = new JSZip();
+    // Distinct images can produce the same name — either because sanitizing
+    // collapses them together, or because the pattern omits {original} and is
+    // therefore identical for every image. JSZip would silently keep only the
+    // last entry, so suffix duplicates instead of losing images.
+    const usedNames = new Set<string>();
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
       // Use the currently selected frame for all images
       const blob = await renderFramedImage(image, selectedFrame!);
-      const filename = applyFilenamePattern(image.name, selectedFrame!);
+      const baseName = applyFilenamePattern(image.name, selectedFrame!);
+      // Step past any suffix that is itself already taken, so a batch holding
+      // both "shot.png" twice and a literal "shot-2.png" still stays unique.
+      let filename = baseName;
+      let suffix = 2;
+      while (usedNames.has(filename)) {
+        filename = `${baseName}-${suffix}`;
+        suffix++;
+      }
+      usedNames.add(filename);
       zip.file(`${filename}.png`, blob);
     }
     const content = await zip.generateAsync({ type: "blob" });
