@@ -256,6 +256,18 @@ const ScreenshotFramer = ({
     }
   };
 
+  // Strips characters that are unsafe in a filename. Both the pattern and the
+  // values substituted into it can contain these: an uploaded file may be named
+  // "../foo.png", and some frame models legitimately contain a dot ("12.9").
+  const sanitizeFilename = (value: string): string =>
+    value
+      .replace(/[/\\:*?"<>|]/g, '')
+      .replace(/\.\.+/g, '.')
+      .replace(/--+/g, '-')
+      .replace(/__+/g, '_')
+      .replace(/\s+/g, ' ')
+      .replace(/^[-_\s.]+|[-_\s.]+$/g, '');
+
   const applyFilenamePattern = (originalName: string, frame: DeviceFrame): string => {
     const nameWithoutExt = originalName.replace(/\.[^/.]+$/, '');
     const category = frame.category || '';
@@ -265,7 +277,7 @@ const ScreenshotFramer = ({
     const deviceColor = frame.color || '';
     const orientation = frame.orientation || '';
     
-    let result = filenamePattern
+    const result = filenamePattern
       .replace(/{original}/g, nameWithoutExt)
       .replace(/{category}/g, category)
       .replace(/{model}/g, deviceModel)
@@ -273,26 +285,39 @@ const ScreenshotFramer = ({
       .replace(/{variant}/g, deviceVariant)
       .replace(/{color}/g, deviceColor)
       .replace(/{orientation}/g, orientation);
-    
-    // Clean up: remove empty segments and multiple separators
-    result = result
-      .replace(/--+/g, '-')
-      .replace(/__+/g, '_')
-      .replace(/\s+/g, ' ')
-      .replace(/^[-_\s]+|[-_\s]+$/g, '');
-    
-    return result;
+
+    // An empty result would make every image in a batch collide on the same zip
+    // entry, so fall back rather than emitting a bare ".png".
+    return (
+      sanitizeFilename(result) ||
+      sanitizeFilename(`framed-${nameWithoutExt}`) ||
+      'framed-image'
+    );
   };
 
   // Download all framed images as zip
   const handleDownloadZip = async () => {
     toast.info("Creating a zip...");
     const zip = new JSZip();
+    // Distinct images can produce the same name — either because sanitizing
+    // collapses them together, or because the pattern omits {original} and is
+    // therefore identical for every image. JSZip would silently keep only the
+    // last entry, so suffix duplicates instead of losing images.
+    const usedNames = new Set<string>();
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
       // Use the currently selected frame for all images
       const blob = await renderFramedImage(image, selectedFrame!);
-      const filename = applyFilenamePattern(image.name, selectedFrame!);
+      const baseName = applyFilenamePattern(image.name, selectedFrame!);
+      // Step past any suffix that is itself already taken, so a batch holding
+      // both "shot.png" twice and a literal "shot-2.png" still stays unique.
+      let filename = baseName;
+      let suffix = 2;
+      while (usedNames.has(filename)) {
+        filename = `${baseName}-${suffix}`;
+        suffix++;
+      }
+      usedNames.add(filename);
       zip.file(`${filename}.png`, blob);
     }
     const content = await zip.generateAsync({ type: "blob" });
@@ -440,7 +465,7 @@ const ScreenshotFramer = ({
                 ))}
               </div>
 
-              {selectedImageIndex !== null && (
+              {images.length > 0 && selectedFrame && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <div className="mb-3">
                     <label className="block text-xs font-medium text-gray-700 mb-1.5">
@@ -497,7 +522,12 @@ const ScreenshotFramer = ({
                       </div>
                     </div>
                     <p className="text-xs text-gray-500 bg-gray-50 p-1.5 rounded border border-gray-200 break-all mt-2">
-                      Preview: {applyFilenamePattern(images[selectedImageIndex].name, selectedFrame)}.png
+                      Preview:{" "}
+                      {applyFilenamePattern(
+                        images[selectedImageIndex ?? 0].name,
+                        selectedFrame
+                      )}
+                      .png
                     </p>
                   </div>
                   {images.length > 1 && (
@@ -509,15 +539,17 @@ const ScreenshotFramer = ({
                       Download All as Zip
                     </button>
                   )}
-                  <button
-                    className="w-full py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center transition-colors"
-                    onClick={() => {
-                      document.getElementById("download-button")?.click();
-                    }}
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Download Framed Image
-                  </button>
+                  {selectedImageIndex !== null && (
+                    <button
+                      className="w-full py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                      onClick={() => {
+                        document.getElementById("download-button")?.click();
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download Framed Image
+                    </button>
+                  )}
                 </div>
               )}
             </div>
