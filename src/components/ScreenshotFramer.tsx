@@ -256,6 +256,18 @@ const ScreenshotFramer = ({
     }
   };
 
+  // Strips characters that are unsafe in a filename. Both the pattern and the
+  // values substituted into it can contain these: an uploaded file may be named
+  // "../foo.png", and some frame models legitimately contain a dot ("12.9").
+  const sanitizeFilename = (value: string): string =>
+    value
+      .replace(/[/\\:*?"<>|]/g, '')
+      .replace(/\.\.+/g, '.')
+      .replace(/--+/g, '-')
+      .replace(/__+/g, '_')
+      .replace(/\s+/g, ' ')
+      .replace(/^[-_\s.]+|[-_\s.]+$/g, '');
+
   const applyFilenamePattern = (originalName: string, frame: DeviceFrame): string => {
     const nameWithoutExt = originalName.replace(/\.[^/.]+$/, '');
     const category = frame.category || '';
@@ -265,7 +277,7 @@ const ScreenshotFramer = ({
     const deviceColor = frame.color || '';
     const orientation = frame.orientation || '';
     
-    let result = filenamePattern
+    const result = filenamePattern
       .replace(/{original}/g, nameWithoutExt)
       .replace(/{category}/g, category)
       .replace(/{model}/g, deviceModel)
@@ -273,15 +285,14 @@ const ScreenshotFramer = ({
       .replace(/{variant}/g, deviceVariant)
       .replace(/{color}/g, deviceColor)
       .replace(/{orientation}/g, orientation);
-    
-    // Clean up: remove empty segments and multiple separators
-    result = result
-      .replace(/--+/g, '-')
-      .replace(/__+/g, '_')
-      .replace(/\s+/g, ' ')
-      .replace(/^[-_\s]+|[-_\s]+$/g, '');
-    
-    return result;
+
+    // An empty result would make every image in a batch collide on the same zip
+    // entry, so fall back rather than emitting a bare ".png".
+    return (
+      sanitizeFilename(result) ||
+      sanitizeFilename(`framed-${nameWithoutExt}`) ||
+      'framed-image'
+    );
   };
 
   // Download all framed images as zip
@@ -440,7 +451,7 @@ const ScreenshotFramer = ({
                 ))}
               </div>
 
-              {selectedImageIndex !== null && (
+              {images.length > 0 && selectedFrame && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <div className="mb-3">
                     <label className="block text-xs font-medium text-gray-700 mb-1.5">
@@ -497,7 +508,12 @@ const ScreenshotFramer = ({
                       </div>
                     </div>
                     <p className="text-xs text-gray-500 bg-gray-50 p-1.5 rounded border border-gray-200 break-all mt-2">
-                      Preview: {applyFilenamePattern(images[selectedImageIndex].name, selectedFrame)}.png
+                      Preview:{" "}
+                      {applyFilenamePattern(
+                        images[selectedImageIndex ?? 0].name,
+                        selectedFrame
+                      )}
+                      .png
                     </p>
                   </div>
                   {images.length > 1 && (
@@ -509,15 +525,17 @@ const ScreenshotFramer = ({
                       Download All as Zip
                     </button>
                   )}
-                  <button
-                    className="w-full py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center transition-colors"
-                    onClick={() => {
-                      document.getElementById("download-button")?.click();
-                    }}
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Download Framed Image
-                  </button>
+                  {selectedImageIndex !== null && (
+                    <button
+                      className="w-full py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                      onClick={() => {
+                        document.getElementById("download-button")?.click();
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download Framed Image
+                    </button>
+                  )}
                 </div>
               )}
             </div>

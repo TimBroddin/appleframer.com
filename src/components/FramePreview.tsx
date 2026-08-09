@@ -10,6 +10,7 @@ interface FramePreviewProps {
 
 const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const zoomCanvasRef = useRef<HTMLCanvasElement>(null);
   const previewRenderSeqRef = useRef<number>(0);
   const [imageUrl, setImageUrl] = useState<string>('');
   const [showZoom, setShowZoom] = useState(false);
@@ -211,6 +212,32 @@ const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => 
     });
   }, [imageUrl, frame, drawImageWithFrame]);
 
+  // Render the zoomed copy in an effect rather than a ref callback: an inline
+  // ref re-runs on every render, so unrelated state changes (typing in the
+  // filename pattern field) would re-render the image on each keystroke.
+  useEffect(() => {
+    if (!showZoom || !imageUrl) return;
+    const node = zoomCanvasRef.current;
+    if (!node) return;
+
+    let cancelled = false;
+    const tempCanvas = document.createElement('canvas');
+    drawImageWithFrame(tempCanvas)
+      .then(() => {
+        if (cancelled) return;
+        node.width = tempCanvas.width;
+        node.height = tempCanvas.height;
+        node.getContext('2d')?.drawImage(tempCanvas, 0, 0);
+      })
+      .catch((error) => {
+        console.error('Error rendering zoomed preview:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showZoom, imageUrl, frame, drawImageWithFrame]);
+
 
   const handleDownload = async () => {
     if (!canvasRef.current) return;
@@ -269,19 +296,7 @@ const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => 
             <X className="h-6 w-6 text-white" />
           </button>
           <canvas
-            ref={(node) => {
-              if (node && showZoom) {
-                const tempCanvas = document.createElement('canvas');
-                drawImageWithFrame(tempCanvas).then(() => {
-                  node.width = tempCanvas.width;
-                  node.height = tempCanvas.height;
-                  const ctx = node.getContext('2d');
-                  if (ctx) {
-                    ctx.drawImage(tempCanvas, 0, 0);
-                  }
-                }).catch(console.error);
-              }
-            }}
+            ref={zoomCanvasRef}
             className="max-w-full max-h-full"
             onClick={(e) => e.stopPropagation()}
           />
