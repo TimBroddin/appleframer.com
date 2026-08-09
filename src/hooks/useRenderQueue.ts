@@ -45,15 +45,18 @@ export function useRenderQueue(backgroundColor: string | null) {
       // Re-read from the ref each pass so items added or re-queued while the
       // loop is running get picked up without restarting the worker.
       for (;;) {
-        const next = itemsRef.current.find((item) => item.status === 'queued');
-        if (!next) break;
+        const next = itemsRef.current.find(
+          (item) => item.status === 'queued' && item.frame
+        );
+        if (!next?.frame) break;
+        const frame = next.frame;
 
         const controller = new AbortController();
         abortRef.current = controller;
         patchItem(next.id, { status: 'rendering' });
 
         try {
-          const blob = await renderFrameToBlob(next.file, next.frame, {
+          const blob = await renderFrameToBlob(next.file, frame, {
             backgroundColor: backgroundRef.current,
             signal: controller.signal,
           });
@@ -95,23 +98,39 @@ export function useRenderQueue(backgroundColor: string | null) {
     abortRef.current?.abort();
     setItems((prev) =>
       prev.map((item) => {
+        // Items still detecting, or with no matching device, have nothing to
+        // re-render — forcing them to 'queued' would strand the progress bar.
+        if (!item.frame) return item;
         if (item.blobUrl) URL.revokeObjectURL(item.blobUrl);
         return { ...item, status: 'queued', blobUrl: undefined, error: undefined };
       })
     );
   }, [backgroundColor]);
 
-  const addFiles = useCallback((entries: Array<{ file: File; frame: DeviceFrame }>) => {
-    const added = entries.map(({ file, frame }) => ({
+  /**
+   * Adds files as 'detecting' straight away so the sheet appears on the first
+   * frame. Device detection has to decode each image, which is slow for large
+   * screenshots — waiting for all of them before showing anything left the user
+   * staring at the empty drop target.
+   */
+  const addFiles = useCallback((files: File[]) => {
+    const added = files.map((file) => ({
       id: createItemId(),
       file,
-      frame,
-      status: 'queued' as const,
+      status: 'detecting' as const,
       sourceUrl: URL.createObjectURL(file),
     }));
     setItems((prev) => [...prev, ...added]);
-    return added.map((item) => item.id);
+    return added;
   }, []);
+
+  /** Records the outcome of detection for one item. */
+  const resolveDetection = useCallback(
+    (id: string, frame: DeviceFrame | undefined) => {
+      patchItem(id, frame ? { frame, status: 'queued' } : { status: 'unmatched' });
+    },
+    [patchItem]
+  );
 
   /** Reassigns the device for a set of items and re-queues them. */
   const setFrameFor = useCallback((ids: string[], frame: DeviceFrame) => {
@@ -119,7 +138,7 @@ export function useRenderQueue(backgroundColor: string | null) {
     abortRef.current?.abort();
     setItems((prev) =>
       prev.map((item) => {
-        if (!idSet.has(item.id) || item.frame.id === frame.id) return item;
+        if (!idSet.has(item.id) || item.frame?.id === frame.id) return item;
         if (item.blobUrl) URL.revokeObjectURL(item.blobUrl);
         return { ...item, frame, status: 'queued', blobUrl: undefined, error: undefined };
       })
@@ -150,9 +169,25 @@ export function useRenderQueue(backgroundColor: string | null) {
   }, []);
 
   const doneCount = items.filter((item) => item.status === 'done').length;
+  // 'unmatched' items never render, so they must not keep the progress bar
+  // spinning forever.
   const isRendering = items.some(
-    (item) => item.status === 'queued' || item.status === 'rendering'
+    (item) =>
+      item.status === 'detecting' ||
+      item.status === 'queued' ||
+      item.status === 'rendering'
   );
+  /** Items that will eventually produce output, for the progress denominator. */
+  const renderableCount = items.filter((item) => item.status !== 'unmatched').length;
 
-  return { items, addFiles, setFrameFor, removeItems, doneCount, isRendering };
+  return {
+    items,
+    addFiles,
+    resolveDetection,
+    setFrameFor,
+    removeItems,
+    doneCount,
+    renderableCount,
+    isRendering,
+  };
 }

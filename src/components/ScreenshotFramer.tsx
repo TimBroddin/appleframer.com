@@ -49,8 +49,16 @@ const ScreenshotFramer = ({
   const addMoreInputRef = useRef<HTMLInputElement>(null);
   const lastClickedIdRef = useRef<string | null>(null);
 
-  const { items, addFiles, setFrameFor, removeItems, doneCount, isRendering } =
-    useRenderQueue(backgroundColor);
+  const {
+    items,
+    addFiles,
+    resolveDetection,
+    setFrameFor,
+    removeItems,
+    doneCount,
+    renderableCount,
+    isRendering,
+  } = useRenderQueue(backgroundColor);
 
   useEffect(() => {
     localStorage.setItem('backgroundColor', backgroundColor ?? 'transparent');
@@ -66,7 +74,9 @@ const ScreenshotFramer = ({
       onSummaryChange(undefined);
       return;
     }
-    const deviceCount = new Set(items.map((item) => item.frame.id)).size;
+    const deviceCount = new Set(
+      items.map((item) => item.frame?.id).filter(Boolean)
+    ).size;
     onSummaryChange(
       `${items.length} shot${items.length === 1 ? '' : 's'} · ${deviceCount} device${
         deviceCount === 1 ? '' : 's'
@@ -87,47 +97,64 @@ const ScreenshotFramer = ({
       }
       if (frames.length === 0) return;
 
-      // Detect each file's device independently — that is the whole point of
-      // per-image frames, and a mixed batch is the common App Store case.
-      const entries = await Promise.all(
-        imageFiles.map(async (file) => {
+      // Show the cards immediately, then detect. Detection has to decode each
+      // image, which is slow for large screenshots, so waiting for the whole
+      // batch before rendering anything left the drop target on screen.
+      const added = addFiles(imageFiles);
+      setSelectedIds(new Set(added.map((item) => item.id)));
+
+      // Decoding every file at once spikes memory and slows each decode down.
+      const CONCURRENCY = 4;
+      let cursor = 0;
+      let matched = 0;
+      const devices = new Set<string>();
+      const unmatchedNames: string[] = [];
+
+      const worker = async () => {
+        for (;;) {
+          const index = cursor++;
+          if (index >= added.length) return;
+          const entry = added[index];
           try {
-            const { width, height } = await readImageSize(file);
-            return { file, frame: findFrameByScreenshotSize(frames, width, height) };
+            const { width, height } = await readImageSize(entry.file);
+            const frame = findFrameByScreenshotSize(frames, width, height);
+            resolveDetection(entry.id, frame);
+            if (frame) {
+              matched++;
+              devices.add(frameLabel(frame));
+            } else {
+              unmatchedNames.push(entry.file.name);
+            }
           } catch {
-            return { file, frame: undefined };
+            resolveDetection(entry.id, undefined);
+            unmatchedNames.push(entry.file.name);
           }
-        })
+        }
+      };
+
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, added.length) }, worker)
       );
 
-      const matched = entries.filter(
-        (entry): entry is { file: File; frame: DeviceFrame } => Boolean(entry.frame)
-      );
-      const unmatched = entries.filter((entry) => !entry.frame);
-
-      if (matched.length > 0) {
-        const newIds = addFiles(matched);
-        setSelectedIds(new Set(newIds));
-
-        const devices = new Set(matched.map((entry) => frameLabel(entry.frame)));
+      if (matched > 0) {
         toast.success(
-          matched.length === 1
-            ? `Matched ${frameLabel(matched[0].frame)}`
-            : `Matched ${matched.length} shots across ${devices.size} device${
+          matched === 1
+            ? `Matched ${Array.from(devices)[0]}`
+            : `Matched ${matched} shots across ${devices.size} device${
                 devices.size === 1 ? '' : 's'
               }`
         );
       }
 
-      if (unmatched.length > 0) {
+      if (unmatchedNames.length > 0) {
         toast.warning(
-          unmatched.length === 1
-            ? `No device matches ${unmatched[0].file.name}`
-            : `${unmatched.length} images had no matching device and were skipped`
+          unmatchedNames.length === 1
+            ? `No device matches ${unmatchedNames[0]}`
+            : `${unmatchedNames.length} images had no matching device`
         );
       }
     },
-    [frames, addFiles]
+    [frames, addFiles, resolveDetection]
   );
 
   // The empty state advertises clipboard paste, so it has to work.
@@ -219,11 +246,14 @@ const ScreenshotFramer = ({
         toast.error('Nothing has finished rendering yet');
         return;
       }
-      if (ready.length < target.length) {
+      // Unmatched images are reported separately at upload time, so only warn
+      // about ones that could still become available.
+      const pending = target.filter(
+        (item) => item.status !== 'done' && item.status !== 'unmatched'
+      ).length;
+      if (pending > 0) {
         toast.warning(
-          `${target.length - ready.length} image${
-            target.length - ready.length === 1 ? ' is' : 's are'
-          } still rendering and will be skipped`
+          `${pending} image${pending === 1 ? ' is' : 's are'} still rendering and will be skipped`
         );
       }
 
@@ -333,6 +363,7 @@ const ScreenshotFramer = ({
         onSelectAll={handleSelectAll}
         onRemoveSelected={handleRemoveSelected}
         doneCount={doneCount}
+        renderableCount={renderableCount}
         isRendering={isRendering}
       />
 

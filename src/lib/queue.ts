@@ -1,13 +1,16 @@
 import { DeviceFrame } from '../hooks/useFrames';
 
-export type RenderStatus = 'queued' | 'rendering' | 'done' | 'error';
+export type RenderStatus = 'detecting' | 'queued' | 'rendering' | 'done' | 'error' | 'unmatched';
 
 export interface QueueItem {
   /** Stable identity for React keys and selection, independent of array order. */
   id: string;
   file: File;
-  /** Per-image device, auto-detected on drop and overridable via the inspector. */
-  frame: DeviceFrame;
+  /**
+   * Per-image device, auto-detected on drop and overridable via the inspector.
+   * Undefined while detection is still running, or when nothing matched.
+   */
+  frame?: DeviceFrame;
   status: RenderStatus;
   /** Object URL of the rendered PNG. Owned by the queue, revoked on replace/remove. */
   blobUrl?: string;
@@ -39,21 +42,36 @@ export function findFrameByScreenshotSize(
   });
 }
 
-/** Human label for a frame, e.g. "16 Pro Max" or "iPad Pro 13". */
-export function frameLabel(frame: DeviceFrame): string {
-  const parts = [frame.model, frame.version, frame.variant].filter(
-    (part): part is string => Boolean(part)
+/**
+ * Human label for a frame, e.g. "iPhone 16 Pro Max" or "iPad Pro 13".
+ *
+ * The category leads because the model alone is ambiguous: an iPhone's model is
+ * the bare series number ("16"), which reads as nothing on its own.
+ */
+export function frameLabel(frame: DeviceFrame | undefined): string {
+  if (!frame) return 'Detecting…';
+
+  // "Watch" is the category in the data but the product is "Apple Watch".
+  const category = frame.category === 'Watch' ? 'Apple Watch' : frame.category;
+
+  const parts = [category, frame.model, frame.version, frame.variant]
+    .filter((part): part is string => Boolean(part))
+    // "Standard" is a data placeholder for the base tier, not a product name —
+    // "iPhone 16 Standard" should read "iPhone 16".
+    .filter((part) => part !== 'Standard');
+
+  // iPad repeats the category in the model ("iPad" > "Pro"), so drop the
+  // duplicate rather than emitting "iPad iPad Pro".
+  const deduped = parts.filter(
+    (part, index) => index === 0 || part.toLowerCase() !== parts[0].toLowerCase()
   );
-  // For iPhone the model is the numeric series ("16") and version is the tier
-  // ("Pro Max"), which reads correctly when joined. iPad/Watch follow the same
-  // model → version → variant order.
-  return parts.join(' ') || frame.coordinates.name;
+  return deduped.join(' ') || frame.coordinates.name;
 }
 
 /** Longer label including colour, for the inspector summary line. */
-export function frameLabelDetailed(frame: DeviceFrame): string {
+export function frameLabelDetailed(frame: DeviceFrame | undefined): string {
   const base = frameLabel(frame);
-  return frame.color ? `${base} · ${frame.color}` : base;
+  return frame?.color ? `${base} · ${frame.color}` : base;
 }
 
 /**

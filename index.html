@@ -2,15 +2,59 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/appleframer-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AppleFramer</title>
-    <meta name="description" content="Frame your Apple device screenshots with a beautiful device bezel. All processing happens locally - your images never leave your device. AppleFramer helps you showcase your screenshots beautifully.">
-    <meta property="og:title" content="AppleFramer" />
-    <meta property="og:description" content="Frame your Apple device screenshots with a beautiful device bezel. All processing happens locally - your images never leave your device. AppleFramer helps you showcase your screenshots beautifully." />
-    <meta property="og:image" content="/appleframer-og.jpg" />
+
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#4b31d4" />
+
+    <title>AppleFramer — Free App Store Screenshot Device Frames</title>
+    <meta
+      name="description"
+      content="Put iPhone, iPad and Apple Watch screenshots into realistic device frames for the App Store. Free, unlimited batch processing, no signup — everything runs in your browser."
+    />
+    <link rel="canonical" href="https://appleframer.com/" />
+
+    <meta property="og:site_name" content="AppleFramer" />
+    <meta property="og:title" content="AppleFramer — Free App Store Screenshot Device Frames" />
+    <meta
+      property="og:description"
+      content="Put iPhone, iPad and Apple Watch screenshots into realistic device frames for the App Store. Free, unlimited batch processing, no signup — everything runs in your browser."
+    />
+    <meta property="og:image" content="https://appleframer.com/appleframer-og.jpg" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://appleframer.com/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AppleFramer — Free App Store Screenshot Device Frames" />
+    <meta
+      name="twitter:description"
+      content="Put iPhone, iPad and Apple Watch screenshots into realistic device frames. Free, batch, private."
+    />
+    <meta name="twitter:image" content="https://appleframer.com/appleframer-og.jpg" />
+
+    <!-- Structured data: lets search engines show this as a free web app. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "AppleFramer",
+        "url": "https://appleframer.com/",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Any (web browser)",
+        "description": "Put iPhone, iPad and Apple Watch screenshots into realistic Apple device frames for App Store listings. Batch processing, runs entirely in the browser.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "featureList": [
+          "Automatic device detection from screenshot size",
+          "iPhone, iPad and Apple Watch device frames",
+          "Batch processing with ZIP download",
+          "Custom background colours and filename patterns",
+          "Runs locally — images are never uploaded"
+        ]
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

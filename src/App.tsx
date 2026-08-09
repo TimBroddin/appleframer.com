@@ -22,7 +22,15 @@ function App() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col bg-canvas text-ink">
+    // With images loaded this is a fixed app shell whose panes scroll
+    // independently. Empty, it is a landing page that scrolls as one document,
+    // so the footer follows the marketing content instead of being stranded
+    // halfway down the page.
+    <div
+      className={`flex flex-col bg-canvas text-ink ${
+        hasItems ? 'h-screen' : 'min-h-screen'
+      }`}
+    >
       <Header
         summary={summary}
         view={view}

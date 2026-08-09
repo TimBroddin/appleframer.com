@@ -56,9 +56,10 @@ const Inspector = ({
   // A single frame only when every selected image agrees; otherwise the
   // controls show a mixed state rather than lying about one of them.
   const commonFrame = useMemo(() => {
-    if (selectedItems.length === 0) return null;
-    const first = selectedItems[0].frame;
-    return selectedItems.every((item) => item.frame.id === first.id) ? first : null;
+    const framed = selectedItems.filter((item) => item.frame);
+    if (framed.length === 0) return null;
+    const first = framed[0].frame;
+    return framed.every((item) => item.frame?.id === first?.id) ? first ?? null : null;
   }, [selectedItems]);
 
   const categories = useMemo(
@@ -118,6 +119,8 @@ const Inspector = ({
   };
 
   const hasSelection = selectedItems.length > 0;
+  // Unmatched images never render, so promising to zip them would be a lie.
+  const downloadableCount = items.filter((item) => item.status !== 'unmatched').length;
 
   return (
     // relative + z-10 gives the inspector its own stacking context so its
@@ -266,12 +269,10 @@ const Inspector = ({
         <button
           type="button"
           onClick={onDownloadAll}
-          disabled={items.length === 0 || isDownloading}
+          disabled={downloadableCount === 0 || isDownloading}
           className="w-full rounded-[9px] bg-accent py-3 text-[14.5px] font-semibold text-white transition-colors hover:bg-accent-deep disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isDownloading
-            ? 'Preparing…'
-            : `Download ${items.length} as zip`}
+          {isDownloading ? 'Preparing…' : `Download ${downloadableCount} as zip`}
         </button>
         <div className="flex gap-[7px]">
           <button

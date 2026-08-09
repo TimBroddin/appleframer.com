@@ -66,24 +66,25 @@ export function sanitizeFilename(value: string): string {
 function tokenValue(
   token: NameToken,
   originalName: string,
-  frame: DeviceFrame,
+  /** Absent while a dropped image is still being matched to a device. */
+  frame: DeviceFrame | undefined,
   index: number
 ): string {
   switch (token.kind) {
     case 'original':
       return originalName.replace(/\.[^/.]+$/, '');
     case 'category':
-      return frame.category || '';
+      return frame?.category || '';
     case 'model':
-      return frame.model || '';
+      return frame?.model || '';
     case 'version':
-      return frame.version || '';
+      return frame?.version || '';
     case 'variant':
-      return frame.variant || '';
+      return frame?.variant || '';
     case 'color':
-      return frame.color || '';
+      return frame?.color || '';
     case 'orientation':
-      return frame.orientation || '';
+      return frame?.orientation || '';
     case 'index':
       return String(index + 1).padStart(2, '0');
     case 'separator':
@@ -98,7 +99,7 @@ function tokenValue(
 export function buildFilename(
   tokens: NameToken[],
   originalName: string,
-  frame: DeviceFrame,
+  frame: DeviceFrame | undefined,
   index: number
 ): string {
   const raw = tokens
@@ -120,7 +121,7 @@ export function buildFilename(
  */
 export function buildUniqueFilenames(
   tokens: NameToken[],
-  entries: Array<{ name: string; frame: DeviceFrame }>
+  entries: Array<{ name: string; frame: DeviceFrame | undefined }>
 ): string[] {
   const used = new Set<string>();
   return entries.map((entry, index) => {

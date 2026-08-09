@@ -12,17 +12,21 @@ interface ContactSheetProps {
 }
 
 const STATUS_TEXT: Record<QueueItem['status'], string> = {
+  detecting: 'detecting…',
   queued: 'queued',
   rendering: 'rendering',
   done: 'done',
   error: 'failed',
+  unmatched: 'no matching device',
 };
 
 const STATUS_CLASS: Record<QueueItem['status'], string> = {
+  detecting: 'text-ink-faint',
   queued: 'text-ink-faint',
   rendering: 'text-accent',
   done: 'text-ink-soft',
   error: 'text-danger',
+  unmatched: 'text-danger',
 };
 
 const Card = ({
@@ -86,8 +90,12 @@ const Card = ({
         <div className="truncate font-mono text-xs-plus text-ink" title={item.file.name}>
           {item.file.name}
         </div>
-        <div className={`mt-0.5 font-mono text-2xs ${STATUS_CLASS[item.status]}`}>
-          {frameLabel(item.frame)} · {STATUS_TEXT[item.status]}
+        <div className={`mt-0.5 truncate font-mono text-2xs ${STATUS_CLASS[item.status]}`}>
+          {/* Without a frame there is no device name to pair with the status,
+              so show the status alone rather than "Detecting… · detecting…". */}
+          {item.frame
+            ? `${frameLabel(item.frame)} · ${STATUS_TEXT[item.status]}`
+            : STATUS_TEXT[item.status]}
         </div>
       </div>
     </button>

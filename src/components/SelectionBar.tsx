@@ -8,6 +8,8 @@ interface SelectionBarProps {
   onSelectAll: () => void;
   onRemoveSelected: () => void;
   doneCount: number;
+  /** Items that can produce output; excludes those with no matching device. */
+  renderableCount: number;
   isRendering: boolean;
 }
 
@@ -19,10 +21,11 @@ const SelectionBar = ({
   onSelectAll,
   onRemoveSelected,
   doneCount,
+  renderableCount,
   isRendering,
 }: SelectionBarProps) => {
   const allSelected = selectedCount === totalCount && totalCount > 0;
-  const progress = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
+  const progress = renderableCount > 0 ? (doneCount / renderableCount) * 100 : 0;
 
   return (
     <div className="flex h-11 flex-none items-center justify-between gap-4 border-b border-hairline bg-surface-sunken px-5 text-[13px] text-ink-soft">
@@ -68,14 +71,14 @@ const SelectionBar = ({
       {isRendering && (
         <div className="flex flex-none items-center gap-2.5 font-mono text-[11.5px]">
           <span>
-            rendering {doneCount} / {totalCount}
+            rendering {doneCount} / {renderableCount}
           </span>
           <span
             className="h-[5px] w-[120px] overflow-hidden rounded-full bg-hairline"
             role="progressbar"
             aria-valuenow={doneCount}
             aria-valuemin={0}
-            aria-valuemax={totalCount}
+            aria-valuemax={renderableCount}
             aria-label="Rendering progress"
           >
             <span
