@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 import { DeviceFrame, getFramePath } from '../hooks/useFrames';
 
 interface FramePreviewProps {
   image: File;
   frame: DeviceFrame;
+  downloadFilename?: string;
 }
 
-const FramePreview = ({ image, frame }: FramePreviewProps) => {
+const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRenderSeqRef = useRef<number>(0);
   const [imageUrl, setImageUrl] = useState<string>('');
+  const [showZoom, setShowZoom] = useState(false);
 
   useEffect(() => {
     const url = URL.createObjectURL(image);
@@ -227,7 +229,7 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
 
     // Download the rendered image
     const link = document.createElement('a');
-    link.download = `framed-${image.name.replace(/\.[^/.]+$/, '')}.png`;
+    link.download = downloadFilename || `framed-${image.name.replace(/\.[^/.]+$/, '')}.png`;
     link.href = tempCanvas.toDataURL('image/png');
     document.body.appendChild(link);
     link.click();
@@ -235,23 +237,57 @@ const FramePreview = ({ image, frame }: FramePreviewProps) => {
   };
 
   return (
-    <div className="flex flex-col items-center">
-      <div className="relative transition-all duration-300 transform hover:scale-[1.01] flex items-center justify-center">
-        <canvas
-          ref={canvasRef}
-          className="max-w-full w-auto max-h-[80vh] md:max-h-[calc(100vh-128px)] h-auto shadow-xl rounded-3xl"
-        />
+    <>
+      <div className="flex flex-col items-center">
+        <div className="relative transition-all duration-300 transform hover:scale-[1.01] flex items-center justify-center">
+          <canvas
+            ref={canvasRef}
+            onClick={() => setShowZoom(true)}
+            className="max-w-full w-auto max-h-[80vh] md:max-h-[calc(100vh-128px)] h-auto shadow-xl rounded-3xl cursor-pointer"
+          />
+        </div>
+
+        <button
+          id="download-button"
+          onClick={handleDownload}
+          className="mt-6 py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center transition-colors"
+        >
+          <Download className="h-4 w-4 mr-2" />
+          Download Framed Image
+        </button>
       </div>
 
-      <button
-        id="download-button"
-        onClick={handleDownload}
-        className="mt-6 py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center transition-colors"
-      >
-        <Download className="h-4 w-4 mr-2" />
-        Download Framed Image
-      </button>
-    </div>
+      {showZoom && (
+        <div 
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowZoom(false)}
+        >
+          <button
+            onClick={() => setShowZoom(false)}
+            className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+          >
+            <X className="h-6 w-6 text-white" />
+          </button>
+          <canvas
+            ref={(node) => {
+              if (node && showZoom) {
+                const tempCanvas = document.createElement('canvas');
+                drawImageWithFrame(tempCanvas).then(() => {
+                  node.width = tempCanvas.width;
+                  node.height = tempCanvas.height;
+                  const ctx = node.getContext('2d');
+                  if (ctx) {
+                    ctx.drawImage(tempCanvas, 0, 0);
+                  }
+                }).catch(console.error);
+              }
+            }}
+            className="max-w-full max-h-full"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
   );
 };
 

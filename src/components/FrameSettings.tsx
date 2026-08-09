@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Smartphone, RotateCcw } from 'lucide-react';
 import { DeviceFrame, useFrames } from '../hooks/useFrames';
 
@@ -24,7 +24,7 @@ const FrameSettings = ({
   const categories = Array.from(new Set(frames.map(frame => frame.category)));
 
   // Get models for selected category
-  const modelsByCategory = React.useMemo(() => {
+  const modelsByCategory = useMemo(() => {
     return Array.from(new Set(
       frames
         .filter(frame => frame.category === selectedCategory)
@@ -33,7 +33,7 @@ const FrameSettings = ({
   }, [frames, selectedCategory]);
 
   // Get versions for selected model
-  const versionsByModel = React.useMemo(() => {
+  const versionsByModel = useMemo(() => {
     return Array.from(new Set(
       frames
         .filter(frame =>
@@ -46,7 +46,7 @@ const FrameSettings = ({
   }, [frames, selectedCategory, selectedModel]);
 
   // Get variants for selected version
-  const variantsByVersion = React.useMemo(() => {
+  const variantsByVersion = useMemo(() => {
     return Array.from(new Set(
       frames
         .filter(frame =>
@@ -60,7 +60,7 @@ const FrameSettings = ({
   }, [frames, selectedCategory, selectedModel, selectedVersion, versionsByModel]);
 
   // Get colors for selected variant
-  const colorsByVariant = React.useMemo(() => {
+  const colorsByVariant = useMemo(() => {
     return Array.from(new Set(
       frames
         .filter(frame =>
@@ -75,7 +75,7 @@ const FrameSettings = ({
   }, [frames, selectedCategory, selectedModel, selectedVersion, versionsByModel]);
 
   // Get orientations for selected variant or color
-  const orientationsByVariant = React.useMemo(() => {
+  const orientationsByVariant = useMemo(() => {
     return frames.filter(frame => {
       const matchesBasic =
         frame.category === selectedCategory &&

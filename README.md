@@ -4,7 +4,11 @@ Frame your Apple device screenshots with a beautiful device bezel. All processin
 
 ## Features
 - Frame iPhone, iPad, and Apple Watch screenshots in realistic Apple device mockups
+- Device color selection for iPhone 16, 17, and iPhone Air
 - Auto-detects device from screenshot size
+- Remembers last selected device across sessions
+- Custom filename patterns with variables for device, color, and orientation
+- Click-to-zoom preview for inspecting details
 - Batch processing and download as zip
 - All processing happens locally in your browser (no uploads)
 - Open source ([GitHub](https://github.com/timbroddin/appleframer.com))

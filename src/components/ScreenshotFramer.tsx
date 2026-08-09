@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ImagePlus, Download, Trash2, Settings } from "lucide-react";
 import UploadZone from "./UploadZone";
 import FramePreview from "./FramePreview";
@@ -28,23 +28,43 @@ const ScreenshotFramer = ({
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(
     null
   );
+  const [filenamePattern, setFilenamePattern] = useState<string>(() => {
+    return localStorage.getItem('filenamePattern') || 'framed-{original}';
+  });
+
+  // Save filename pattern to localStorage
+  useEffect(() => {
+    localStorage.setItem('filenamePattern', filenamePattern);
+  }, [filenamePattern]);
 
   // Update selectedFrame when frames are loaded
   useEffect(() => {
     if (frames.length > 0 && !selectedFrame) {
+      // Try to load last used device from localStorage
+      const lastDeviceId = localStorage.getItem('lastDeviceId');
+      if (lastDeviceId) {
+        const lastFrame = frames.find(f => f.id === lastDeviceId);
+        if (lastFrame) {
+          setSelectedFrame(lastFrame);
+          return;
+        }
+      }
       setSelectedFrame(frames[0]);
     }
   }, [frames, selectedFrame]);
+
+  // Save selected frame to localStorage whenever it changes
+  useEffect(() => {
+    if (selectedFrame) {
+      localStorage.setItem('lastDeviceId', selectedFrame.id);
+    }
+  }, [selectedFrame]);
 
   const findFrameByScreenshotSize = (
     frames: DeviceFrame[],
     width: number,
     height: number
   ): DeviceFrame | undefined => {
-    const allSizes = frames.map((f) => ({
-      w: f.coordinates.screenshotWidth,
-      h: f.coordinates.screenshotHeight,
-    }));
     const found = frames.find((frame: DeviceFrame) => {
       const fw = frame.coordinates.screenshotWidth;
       const fh = frame.coordinates.screenshotHeight;
@@ -236,6 +256,34 @@ const ScreenshotFramer = ({
     }
   };
 
+  const applyFilenamePattern = (originalName: string, frame: DeviceFrame): string => {
+    const nameWithoutExt = originalName.replace(/\.[^/.]+$/, '');
+    const category = frame.category || '';
+    const deviceModel = frame.model || '';
+    const deviceVersion = frame.version || '';
+    const deviceVariant = frame.variant || '';
+    const deviceColor = frame.color || '';
+    const orientation = frame.orientation || '';
+    
+    let result = filenamePattern
+      .replace(/{original}/g, nameWithoutExt)
+      .replace(/{category}/g, category)
+      .replace(/{model}/g, deviceModel)
+      .replace(/{version}/g, deviceVersion)
+      .replace(/{variant}/g, deviceVariant)
+      .replace(/{color}/g, deviceColor)
+      .replace(/{orientation}/g, orientation);
+    
+    // Clean up: remove empty segments and multiple separators
+    result = result
+      .replace(/--+/g, '-')
+      .replace(/__+/g, '_')
+      .replace(/\s+/g, ' ')
+      .replace(/^[-_\s]+|[-_\s]+$/g, '');
+    
+    return result;
+  };
+
   // Download all framed images as zip
   const handleDownloadZip = async () => {
     toast.info("Creating a zip...");
@@ -244,7 +292,8 @@ const ScreenshotFramer = ({
       const image = images[i];
       // Use the currently selected frame for all images
       const blob = await renderFramedImage(image, selectedFrame!);
-      zip.file(`framed-${image.name.replace(/\.[^/.]+$/, "")}.png`, blob);
+      const filename = applyFilenamePattern(image.name, selectedFrame!);
+      zip.file(`${filename}.png`, blob);
     }
     const content = await zip.generateAsync({ type: "blob" });
     const link = document.createElement("a");
@@ -318,6 +367,7 @@ const ScreenshotFramer = ({
                 <FramePreview
                   image={images[selectedImageIndex]}
                   frame={selectedFrame}
+                  downloadFilename={`${applyFilenamePattern(images[selectedImageIndex].name, selectedFrame)}.png`}
                 />
               )}
 
@@ -392,6 +442,64 @@ const ScreenshotFramer = ({
 
               {selectedImageIndex !== null && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium text-gray-700 mb-1.5">
+                      Filename pattern
+                    </label>
+                    <input
+                      type="text"
+                      value={filenamePattern}
+                      onChange={(e) => setFilenamePattern(e.target.value)}
+                      placeholder="framed-{original}"
+                      className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                    />
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap gap-1">
+                        {[
+                          { label: 'Original', value: '{original}' },
+                          { label: 'Category', value: '{category}' },
+                          { label: 'Model', value: '{model}' },
+                          { label: 'Version', value: '{version}' },
+                          { label: 'Variant', value: '{variant}' },
+                          { label: 'Color', value: '{color}' },
+                          { label: 'Orientation', value: '{orientation}' },
+                        ].map((token) => (
+                          <button
+                            key={token.value}
+                            onClick={() => setFilenamePattern(prev => prev + token.value)}
+                            className="px-2 py-0.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 transition-colors"
+                          >
+                            {token.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {[
+                          { label: 'Dash', value: '-' },
+                          { label: 'Underscore', value: '_' },
+                          { label: 'Space', value: ' ' },
+                          { label: 'Dot', value: '.' },
+                        ].map((sep) => (
+                          <button
+                            key={sep.label}
+                            onClick={() => setFilenamePattern(prev => prev + sep.value)}
+                            className="px-2 py-0.5 text-xs bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 transition-colors"
+                          >
+                            {sep.label}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => setFilenamePattern('')}
+                          className="px-2 py-0.5 text-xs bg-red-50 hover:bg-red-100 text-red-700 rounded border border-red-200 transition-colors ml-auto"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500 bg-gray-50 p-1.5 rounded border border-gray-200 break-all mt-2">
+                      Preview: {applyFilenamePattern(images[selectedImageIndex].name, selectedFrame)}.png
+                    </p>
+                  </div>
                   {images.length > 1 && (
                     <button
                       className="w-full mb-2 py-2 px-4 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
