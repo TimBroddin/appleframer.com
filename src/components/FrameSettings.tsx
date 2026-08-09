@@ -6,12 +6,19 @@ interface FrameSettingsProps {
   selectedFrame: DeviceFrame;
   setSelectedFrame: (frame: DeviceFrame) => void;
   onClose: () => void;
+  /** Solid background behind the device, or null for transparent. */
+  backgroundColor: string | null;
+  setBackgroundColor: (color: string | null) => void;
 }
+
+const DEFAULT_BACKGROUND = '#ffffff';
 
 const FrameSettings = ({
   selectedFrame,
   setSelectedFrame,
-  onClose
+  onClose,
+  backgroundColor,
+  setBackgroundColor
 }: FrameSettingsProps) => {
   const { frames, isLoading, error } = useFrames();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -464,6 +471,39 @@ const FrameSettings = ({
                 </div>
               </div>
             )}
+            {/* Background Selection */}
+            <div>
+              <h4 className="font-medium mb-4 text-lg">Background</h4>
+              <div className="flex flex-wrap items-center gap-4">
+                <button
+                  className={`p-4 rounded-lg border ${backgroundColor === null
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:bg-gray-50'
+                    } transition-colors text-base`}
+                  onClick={() => setBackgroundColor(null)}
+                >
+                  Transparent
+                </button>
+
+                <label
+                  className={`flex items-center gap-3 p-4 rounded-lg border cursor-pointer ${backgroundColor !== null
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:bg-gray-50'
+                    } transition-colors`}
+                >
+                  <input
+                    type="color"
+                    aria-label="Background color"
+                    value={backgroundColor ?? DEFAULT_BACKGROUND}
+                    onChange={(e) => setBackgroundColor(e.target.value)}
+                    className="h-8 w-8 cursor-pointer border-0 bg-transparent p-0"
+                  />
+                  <span className="text-base font-mono">
+                    {(backgroundColor ?? DEFAULT_BACKGROUND).toLowerCase()}
+                  </span>
+                </label>
+              </div>
+            </div>
           </div>
 
           <div className="mt-8 pt-6 border-t border-gray-200 flex gap-4">

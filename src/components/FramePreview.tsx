@@ -6,9 +6,11 @@ interface FramePreviewProps {
   image: File;
   frame: DeviceFrame;
   downloadFilename?: string;
+  /** Solid background behind the device, or null for transparent. */
+  backgroundColor?: string | null;
 }
 
-const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => {
+const FramePreview = ({ image, frame, downloadFilename, backgroundColor = null }: FramePreviewProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const zoomCanvasRef = useRef<HTMLCanvasElement>(null);
   const previewRenderSeqRef = useRef<number>(0);
@@ -86,6 +88,14 @@ const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => 
 
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Fill the background on the MAIN canvas only. The temp canvas below
+      // relies on transparency for the mask and the destination-out frame
+      // erase, so filling it there would defeat the corner clipping.
+      if (backgroundColor) {
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
 
       // Create a temporary canvas for the masked screenshot
       const tempCanvas = document.createElement('canvas');
@@ -175,12 +185,9 @@ const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => 
 
         // Put the masked image data back
         tempCtx.putImageData(imageData, adjustedX, adjustedY);
-
-        // Draw the result to main canvas
-        ctx.drawImage(tempCanvas, 0, 0);
       } else {
-        // If no mask, draw the screenshot directly with inset to prevent bleeding
-        ctx.drawImage(
+        // If no mask, draw the screenshot with inset to prevent bleeding
+        tempCtx.drawImage(
           screenImg,
           adjustedX,
           adjustedY,
@@ -188,6 +195,18 @@ const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => 
           adjustedHeight
         );
       }
+
+      // The corner masks are plain square blocks rather than the screen's
+      // rounded silhouette, so they leave screenshot pixels underneath the
+      // frame's rounded corner. Erase everything the frame body covers using
+      // its own alpha channel, which is the authoritative screen shape. This
+      // also softens the edge against the frame's antialiasing.
+      tempCtx.globalCompositeOperation = 'destination-out';
+      tempCtx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+      tempCtx.globalCompositeOperation = 'source-over';
+
+      // Draw the result to main canvas
+      ctx.drawImage(tempCanvas, 0, 0);
       // Draw the frame image
       ctx.drawImage(
         frameImg,
@@ -202,7 +221,7 @@ const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => 
         ? error
         : new Error('Failed to render framed image');
     }
-  }, [imageUrl, frame]);
+  }, [imageUrl, frame, backgroundColor]);
 
   useEffect(() => {
     if (!canvasRef.current || !imageUrl) return;
@@ -271,6 +290,18 @@ const FramePreview = ({ image, frame, downloadFilename }: FramePreviewProps) => 
             ref={canvasRef}
             onClick={() => setShowZoom(true)}
             className="max-w-full w-auto max-h-[80vh] md:max-h-[calc(100vh-128px)] h-auto shadow-xl rounded-3xl cursor-pointer"
+            // Checkerboard shows through transparent output so it reads as
+            // transparent rather than white.
+            style={
+              backgroundColor
+                ? undefined
+                : {
+                    backgroundImage:
+                      'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
+                    backgroundSize: '16px 16px',
+                    backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
+                  }
+            }
           />
         </div>
 
