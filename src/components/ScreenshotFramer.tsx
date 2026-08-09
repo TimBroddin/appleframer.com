@@ -31,11 +31,21 @@ const ScreenshotFramer = ({
   const [filenamePattern, setFilenamePattern] = useState<string>(() => {
     return localStorage.getItem('filenamePattern') || 'framed-{original}';
   });
+  // null means a transparent background (the default)
+  const [backgroundColor, setBackgroundColor] = useState<string | null>(() => {
+    const saved = localStorage.getItem('backgroundColor');
+    return !saved || saved === 'transparent' ? null : saved;
+  });
 
   // Save filename pattern to localStorage
   useEffect(() => {
     localStorage.setItem('filenamePattern', filenamePattern);
   }, [filenamePattern]);
+
+  // Save background color to localStorage
+  useEffect(() => {
+    localStorage.setItem('backgroundColor', backgroundColor ?? 'transparent');
+  }, [backgroundColor]);
 
   // Update selectedFrame when frames are loaded
   useEffect(() => {
@@ -174,6 +184,14 @@ const ScreenshotFramer = ({
       if (!ctx) throw new Error("No canvas context");
       // Disable image smoothing to prevent bleeding in Safari
       ctx.imageSmoothingEnabled = false;
+
+      // Fill the background on the MAIN canvas only. The temp canvas below
+      // relies on transparency for the mask and the destination-out frame
+      // erase, so filling it there would defeat the corner clipping.
+      if (backgroundColor) {
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
       // Create a temporary canvas for the masked screenshot
       const tempCanvas = document.createElement("canvas");
       const tempCtx = tempCanvas.getContext("2d");
@@ -235,9 +253,8 @@ const ScreenshotFramer = ({
           }
         }
         tempCtx.putImageData(imageData, adjustedX, adjustedY);
-        ctx.drawImage(tempCanvas, 0, 0);
       } else {
-        ctx.drawImage(
+        tempCtx.drawImage(
           screenImg,
           adjustedX,
           adjustedY,
@@ -245,6 +262,17 @@ const ScreenshotFramer = ({
           adjustedHeight
         );
       }
+
+      // The corner masks are plain square blocks rather than the screen's
+      // rounded silhouette, so they leave screenshot pixels underneath the
+      // frame's rounded corner. Erase everything the frame body covers using
+      // its own alpha channel, which is the authoritative screen shape. This
+      // also softens the edge against the frame's antialiasing.
+      tempCtx.globalCompositeOperation = "destination-out";
+      tempCtx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+      tempCtx.globalCompositeOperation = "source-over";
+
+      ctx.drawImage(tempCanvas, 0, 0);
       ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
       return await new Promise<Blob>((resolve) => {
         canvas.toBlob((blob) => {
@@ -393,6 +421,7 @@ const ScreenshotFramer = ({
                   image={images[selectedImageIndex]}
                   frame={selectedFrame}
                   downloadFilename={`${applyFilenamePattern(images[selectedImageIndex].name, selectedFrame)}.png`}
+                  backgroundColor={backgroundColor}
                 />
               )}
 
@@ -562,6 +591,8 @@ const ScreenshotFramer = ({
           selectedFrame={selectedFrame}
           setSelectedFrame={setSelectedFrame}
           onClose={() => setShowSettings(false)}
+          backgroundColor={backgroundColor}
+          setBackgroundColor={setBackgroundColor}
         />
       )}
     </div>
