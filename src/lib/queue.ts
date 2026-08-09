@@ -12,8 +12,12 @@ export interface QueueItem {
    */
   frame?: DeviceFrame;
   status: RenderStatus;
-  /** Object URL of the rendered PNG. Owned by the queue, revoked on replace/remove. */
-  blobUrl?: string;
+  /**
+   * Downscaled framed preview as a data URL, for the card and the single view.
+   * The full-resolution PNG is rendered on demand at export rather than held
+   * for every image in the batch.
+   */
+  previewUrl?: string;
   /** Raw screenshot preview, shown until the framed render lands. */
   sourceUrl: string;
   error?: string;

@@ -9,6 +9,9 @@ import { DeviceFrame, getFramePath } from '../hooks/useFrames';
  * both callers now come through here.
  */
 
+/** Anything drawImage accepts and that reports intrinsic dimensions. */
+export type ImageSource = ImageBitmap | HTMLImageElement;
+
 export interface RenderOptions {
   /** Solid background behind the device, or null for transparent. */
   backgroundColor?: string | null;
@@ -81,7 +84,7 @@ function loadFrameAssets(frame: DeviceFrame): Promise<FrameAssets> {
  */
 export async function renderFrameToCanvas(
   canvas: HTMLCanvasElement,
-  screenImg: HTMLImageElement,
+  screenImg: ImageSource,
   frame: DeviceFrame,
   { backgroundColor = null, signal }: RenderOptions = {}
 ): Promise<void> {
@@ -175,15 +178,86 @@ export async function renderFrameToCanvas(
   ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
 }
 
-/** Renders a framed image straight to a PNG blob. */
+/**
+ * Decodes a file to a bitmap.
+ *
+ * createImageBitmap decodes off the main thread, so it neither blocks the UI
+ * nor pays the layout cost of an <img>. A large screenshot batch is dominated
+ * by decode time, which makes this the single biggest win in the pipeline.
+ */
+export async function decodeFile(file: File): Promise<ImageBitmap | HTMLImageElement> {
+  if (typeof createImageBitmap === 'function') {
+    return await createImageBitmap(file);
+  }
+  // Safari < 15 and other older engines.
+  const url = URL.createObjectURL(file);
+  try {
+    return await loadImage(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+export function closeBitmap(source: ImageSource | undefined) {
+  // Bitmaps hold decoded pixels outside the JS heap; a 250MB batch will exhaust
+  // memory if they are not released explicitly.
+  if (source && 'close' in source) source.close();
+}
+
+/**
+ * Renders a downscaled preview for the contact sheet.
+ *
+ * Cards display at roughly 180px, so encoding a full 2300x3000 PNG for each one
+ * is wasted work on upload — the expensive full-resolution render is deferred
+ * to export, where it is actually needed. Returns a data URL rather than an
+ * object URL so there is no lifetime to manage for something this small.
+ */
+export async function renderFramePreview(
+  file: File,
+  frame: DeviceFrame,
+  options: RenderOptions & { source?: ImageSource; maxHeight?: number } = {}
+): Promise<string> {
+  const { maxHeight = 420, source: provided, ...rest } = options;
+  const screenImg = provided ?? (await decodeFile(file));
+  try {
+    throwIfAborted(rest.signal);
+
+    const full = document.createElement('canvas');
+    await renderFrameToCanvas(full, screenImg, frame, rest);
+    throwIfAborted(rest.signal);
+
+    // Downscale in one step. Quality matters little at thumbnail size, and the
+    // multi-step box filter would cost more than it is worth here.
+    const scale = Math.min(1, maxHeight / full.height);
+    if (scale === 1) return full.toDataURL('image/png');
+
+    const small = document.createElement('canvas');
+    small.width = Math.max(1, Math.round(full.width * scale));
+    small.height = Math.max(1, Math.round(full.height * scale));
+    const ctx = small.getContext('2d');
+    if (!ctx) throw new Error('No preview canvas context');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(full, 0, 0, small.width, small.height);
+    return small.toDataURL('image/png');
+  } finally {
+    if (!provided) closeBitmap(screenImg);
+  }
+}
+
+/**
+ * Renders a framed image straight to a PNG blob at full resolution.
+ *
+ * Pass `source` to reuse a bitmap that was already decoded (detection decodes
+ * every file to read its dimensions), which halves the decode work per image.
+ */
 export async function renderFrameToBlob(
   file: File,
   frame: DeviceFrame,
-  options: RenderOptions = {}
+  options: RenderOptions & { source?: ImageSource } = {}
 ): Promise<Blob> {
-  const url = URL.createObjectURL(file);
+  const provided = options.source;
+  const screenImg = provided ?? (await decodeFile(file));
   try {
-    const screenImg = await loadImage(url);
     throwIfAborted(options.signal);
 
     const canvas = document.createElement('canvas');
@@ -196,17 +270,7 @@ export async function renderFrameToBlob(
       }, 'image/png');
     });
   } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-/** Reads a File's intrinsic pixel dimensions. */
-export async function readImageSize(file: File): Promise<{ width: number; height: number }> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await loadImage(url);
-    return { width: img.width, height: img.height };
-  } finally {
-    URL.revokeObjectURL(url);
+    // Only release what we decoded here; the caller owns anything it passed in.
+    if (!provided) closeBitmap(screenImg);
   }
 }

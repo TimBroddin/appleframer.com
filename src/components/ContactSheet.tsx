@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Check, Plus } from 'lucide-react';
 import { QueueItem, frameLabel } from '../lib/queue';
 
@@ -29,7 +30,12 @@ const STATUS_CLASS: Record<QueueItem['status'], string> = {
   unmatched: 'text-danger',
 };
 
-const Card = ({
+/**
+ * Memoised: the queue patches one item at a time, and without this every
+ * status change re-renders every card in the batch — 20 cards × 20 status
+ * transitions is 400 renders of image-bearing nodes.
+ */
+const Card = memo(function Card({
   item,
   selected,
   backgroundColor,
@@ -39,10 +45,10 @@ const Card = ({
   selected: boolean;
   backgroundColor: string | null;
   onToggleSelect: (id: string, event: React.MouseEvent) => void;
-}) => {
+}) {
   // Show the framed render once it exists, falling back to the raw screenshot
   // so a card is never empty while the queue works through the batch.
-  const src = item.blobUrl ?? item.sourceUrl;
+  const src = item.previewUrl ?? item.sourceUrl;
 
   return (
     <button
@@ -75,7 +81,7 @@ const Card = ({
           src={src}
           alt={item.file.name}
           className={`max-h-[184px] w-auto max-w-full object-contain transition-opacity ${
-            item.blobUrl ? 'opacity-100' : 'opacity-40'
+            item.previewUrl ? 'opacity-100' : 'opacity-40'
           }`}
         />
 
@@ -100,7 +106,7 @@ const Card = ({
       </div>
     </button>
   );
-};
+});
 
 const AddMoreTile = ({ onAddMore }: { onAddMore: () => void }) => (
   <button

@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import { DeviceFrame } from '../hooks/useFrames';
 import { useRenderQueue } from '../hooks/useRenderQueue';
 import { findFrameByScreenshotSize, frameLabel, QueueItem } from '../lib/queue';
-import { readImageSize } from '../lib/renderFrame';
+import { decodeFile, renderFrameToBlob } from '../lib/renderFrame';
 import {
   buildFilename,
   buildUniqueFilenames,
@@ -116,9 +116,11 @@ const ScreenshotFramer = ({
           if (index >= added.length) return;
           const entry = added[index];
           try {
-            const { width, height } = await readImageSize(entry.file);
-            const frame = findFrameByScreenshotSize(frames, width, height);
-            resolveDetection(entry.id, frame);
+            // The bitmap is handed to the queue rather than discarded, so the
+            // render does not decode the same file a second time.
+            const source = await decodeFile(entry.file);
+            const frame = findFrameByScreenshotSize(frames, source.width, source.height);
+            resolveDetection(entry.id, frame, source);
             if (frame) {
               matched++;
               devices.add(frameLabel(frame));
@@ -175,18 +177,24 @@ const ScreenshotFramer = ({
     [items, selectedIds]
   );
 
+  // Read through a ref so the handler identity is stable: it is passed to every
+  // memoised Card, and a new function each render would defeat the memo.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
   const handleToggleSelect = useCallback(
     (id: string, event: React.MouseEvent) => {
+      const current = itemsRef.current;
       setSelectedIds((prev) => {
         // Shift extends from the last click; plain click replaces the selection,
         // which is what a contact sheet is expected to do.
         if (event.shiftKey && lastClickedIdRef.current) {
-          const from = items.findIndex((item) => item.id === lastClickedIdRef.current);
-          const to = items.findIndex((item) => item.id === id);
+          const from = current.findIndex((item) => item.id === lastClickedIdRef.current);
+          const to = current.findIndex((item) => item.id === id);
           if (from !== -1 && to !== -1) {
             const [start, end] = from < to ? [from, to] : [to, from];
             const next = new Set(prev);
-            items.slice(start, end + 1).forEach((item) => next.add(item.id));
+            current.slice(start, end + 1).forEach((item) => next.add(item.id));
             return next;
           }
         }
@@ -204,7 +212,7 @@ const ScreenshotFramer = ({
         return new Set([id]);
       });
     },
-    [items]
+    []
   );
 
   const handleSetFrame = useCallback(
@@ -216,10 +224,11 @@ const ScreenshotFramer = ({
   );
 
   const handleSelectAll = useCallback(() => {
+    const current = itemsRef.current;
     setSelectedIds((prev) =>
-      prev.size === items.length ? new Set() : new Set(items.map((item) => item.id))
+      prev.size === current.length ? new Set() : new Set(current.map((item) => item.id))
     );
-  }, [items]);
+  }, []);
 
   const handleRemoveSelected = useCallback(() => {
     removeItems(Array.from(selectedIds));
@@ -265,14 +274,15 @@ const ScreenshotFramer = ({
           ready.map((item) => ({ name: item.file.name, frame: item.frame }))
         );
 
-        await Promise.all(
-          ready.map(async (item, index) => {
-            // The queue already rendered these; re-fetch the blob rather than
-            // re-running the canvas pipeline.
-            const blob = await fetch(item.blobUrl!).then((res) => res.blob());
-            zip.file(`${names[index]}.png`, blob);
-          })
-        );
+        // Render at full resolution here rather than on upload. Sequentially,
+        // because each render is main-thread canvas work.
+        for (let index = 0; index < ready.length; index++) {
+          const item = ready[index];
+          const blob = await renderFrameToBlob(item.file, item.frame!, {
+            backgroundColor,
+          });
+          zip.file(`${names[index]}.png`, blob);
+        }
 
         const content = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(content);
@@ -290,30 +300,34 @@ const ScreenshotFramer = ({
         setIsDownloading(false);
       }
     },
-    [awaitRendered, tokens]
+    [awaitRendered, tokens, backgroundColor]
   );
 
   const handleCopyImage = useCallback(async () => {
     const item = selectedItems[0];
-    if (!item?.blobUrl) {
+    if (!item?.frame || item.status !== 'done') {
       toast.error('That image has not finished rendering');
       return;
     }
     try {
-      const blob = await fetch(item.blobUrl).then((res) => res.blob());
+      // Safari requires the ClipboardItem to be constructed synchronously with
+      // a promise, or it rejects the write as not user-initiated.
+      const blob = renderFrameToBlob(item.file, item.frame, { backgroundColor });
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
       toast.success('Copied to the clipboard');
     } catch {
       toast.error('Could not copy the image');
     }
-  }, [selectedItems]);
+  }, [selectedItems, backgroundColor]);
 
   const handleDownloadSingle = useCallback(
-    (item: QueueItem) => {
-      if (!item.blobUrl) return;
+    async (item: QueueItem) => {
+      if (!item.frame || item.status !== 'done') return;
       const index = items.findIndex((entry) => entry.id === item.id);
+      const blob = await renderFrameToBlob(item.file, item.frame, { backgroundColor });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = item.blobUrl;
+      link.href = url;
       link.download = `${buildFilename(
         tokens,
         item.file.name,
@@ -323,8 +337,9 @@ const ScreenshotFramer = ({
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
-    [items, tokens]
+    [items, tokens, backgroundColor]
   );
 
   if (isLoading) {

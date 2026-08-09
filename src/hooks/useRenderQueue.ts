@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { QueueItem, createItemId } from '../lib/queue';
-import { isAbortError, renderFrameToBlob } from '../lib/renderFrame';
+import {
+  closeBitmap,
+  ImageSource,
+  isAbortError,
+  renderFramePreview,
+} from '../lib/renderFrame';
 import { DeviceFrame } from './useFrames';
 
 /**
@@ -10,8 +15,12 @@ import { DeviceFrame } from './useFrames';
  * the main thread, so running them concurrently would not be faster and would
  * make the UI janky for a large batch.
  *
- * This hook owns every object URL it creates and revokes them on replace and on
- * unmount.
+ * The queue produces downscaled previews for the sheet; the full-resolution
+ * render is deferred to export, so a large batch does not pay to encode pixels
+ * that are only ever shown at thumbnail size.
+ *
+ * This hook owns the source object URLs it creates and revokes them on removal
+ * and unmount.
  */
 export function useRenderQueue(backgroundColor: string | null) {
   const [items, setItems] = useState<QueueItem[]>([]);
@@ -21,20 +30,19 @@ export function useRenderQueue(backgroundColor: string | null) {
   const backgroundRef = useRef(backgroundColor);
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * Bitmaps decoded during detection, waiting to be consumed by the render.
+   * Detection already decodes every file to read its dimensions; reusing that
+   * result halves the decode work, which dominates a large batch. Entries are
+   * released as soon as they are used, and on removal or unmount.
+   */
+  const bitmapsRef = useRef(new Map<string, ImageSource>());
 
   itemsRef.current = items;
 
   const patchItem = useCallback((id: string, patch: Partial<QueueItem>) => {
-    setItems((prev) =>
-      prev.map((item) => {
-        if (item.id !== id) return item;
-        // Replacing a rendered blob means the old URL leaks unless revoked.
-        if (patch.blobUrl !== undefined && item.blobUrl && item.blobUrl !== patch.blobUrl) {
-          URL.revokeObjectURL(item.blobUrl);
-        }
-        return { ...item, ...patch };
-      })
-    );
+    // Previews are data URLs, which the GC reclaims — no revocation needed.
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }, []);
 
   const drain = useCallback(async () => {
@@ -55,14 +63,24 @@ export function useRenderQueue(backgroundColor: string | null) {
         abortRef.current = controller;
         patchItem(next.id, { status: 'rendering' });
 
+        // Reuse detection's bitmap on the first render of an item; a device
+        // change later has nothing cached and decodes again, which is fine
+        // because it is a single image rather than the whole batch.
+        const cached = bitmapsRef.current.get(next.id);
+        bitmapsRef.current.delete(next.id);
+
         try {
-          const blob = await renderFrameToBlob(next.file, frame, {
+          // Only a thumbnail is needed to fill a card; the full-resolution
+          // render happens at export, so upload does not pay for pixels nobody
+          // looks at.
+          const previewUrl = await renderFramePreview(next.file, frame, {
             backgroundColor: backgroundRef.current,
             signal: controller.signal,
+            source: cached,
           });
           patchItem(next.id, {
             status: 'done',
-            blobUrl: URL.createObjectURL(blob),
+            previewUrl,
             error: undefined,
           });
         } catch (error) {
@@ -74,6 +92,8 @@ export function useRenderQueue(backgroundColor: string | null) {
             status: 'error',
             error: error instanceof Error ? error.message : 'Render failed',
           });
+        } finally {
+          closeBitmap(cached);
         }
       }
     } finally {
@@ -101,8 +121,7 @@ export function useRenderQueue(backgroundColor: string | null) {
         // Items still detecting, or with no matching device, have nothing to
         // re-render — forcing them to 'queued' would strand the progress bar.
         if (!item.frame) return item;
-        if (item.blobUrl) URL.revokeObjectURL(item.blobUrl);
-        return { ...item, status: 'queued', blobUrl: undefined, error: undefined };
+        return { ...item, status: 'queued', previewUrl: undefined, error: undefined };
       })
     );
   }, [backgroundColor]);
@@ -124,9 +143,18 @@ export function useRenderQueue(backgroundColor: string | null) {
     return added;
   }, []);
 
-  /** Records the outcome of detection for one item. */
+  /**
+   * Records the outcome of detection for one item, handing over the bitmap it
+   * decoded so the render does not decode the same file again.
+   */
   const resolveDetection = useCallback(
-    (id: string, frame: DeviceFrame | undefined) => {
+    (id: string, frame: DeviceFrame | undefined, source?: ImageSource) => {
+      if (frame && source) {
+        bitmapsRef.current.set(id, source);
+      } else {
+        // Nothing will consume it.
+        closeBitmap(source);
+      }
       patchItem(id, frame ? { frame, status: 'queued' } : { status: 'unmatched' });
     },
     [patchItem]
@@ -139,18 +167,20 @@ export function useRenderQueue(backgroundColor: string | null) {
     setItems((prev) =>
       prev.map((item) => {
         if (!idSet.has(item.id) || item.frame?.id === frame.id) return item;
-        if (item.blobUrl) URL.revokeObjectURL(item.blobUrl);
-        return { ...item, frame, status: 'queued', blobUrl: undefined, error: undefined };
+        return { ...item, frame, status: 'queued', previewUrl: undefined, error: undefined };
       })
     );
   }, []);
 
   const removeItems = useCallback((ids: string[]) => {
     const idSet = new Set(ids);
+    ids.forEach((id) => {
+      closeBitmap(bitmapsRef.current.get(id));
+      bitmapsRef.current.delete(id);
+    });
     setItems((prev) =>
       prev.filter((item) => {
         if (!idSet.has(item.id)) return true;
-        if (item.blobUrl) URL.revokeObjectURL(item.blobUrl);
         URL.revokeObjectURL(item.sourceUrl);
         return false;
       })
@@ -159,12 +189,14 @@ export function useRenderQueue(backgroundColor: string | null) {
 
   // Revoke everything still outstanding on unmount.
   useEffect(() => {
+    const bitmaps = bitmapsRef.current;
     return () => {
       abortRef.current?.abort();
       itemsRef.current.forEach((item) => {
-        if (item.blobUrl) URL.revokeObjectURL(item.blobUrl);
         URL.revokeObjectURL(item.sourceUrl);
       });
+      bitmaps.forEach(closeBitmap);
+      bitmaps.clear();
     };
   }, []);
 

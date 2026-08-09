@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, X } from 'lucide-react';
 import { QueueItem, frameLabelDetailed } from '../lib/queue';
+import { renderFrameToBlob } from '../lib/renderFrame';
 
 interface SinglePreviewProps {
   item: QueueItem | undefined;
@@ -15,6 +16,31 @@ interface SinglePreviewProps {
  */
 const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps) => {
   const [zoomed, setZoomed] = useState(false);
+  // The sheet preview is only ~420px tall, so zooming renders the real thing
+  // rather than upscaling a thumbnail into a blurry mess.
+  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!zoomed || !item?.frame) return;
+    let cancelled = false;
+    let url: string | null = null;
+
+    renderFrameToBlob(item.file, item.frame, { backgroundColor })
+      .then((blob) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setZoomUrl(url);
+      })
+      .catch(() => {
+        /* Fall back to the preview below. */
+      });
+
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+      setZoomUrl(null);
+    };
+  }, [zoomed, item?.id, item?.frame, item?.file, backgroundColor]);
 
   useEffect(() => {
     if (!zoomed) return;
@@ -36,7 +62,7 @@ const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps
     );
   }
 
-  const ready = item.status === 'done' && item.blobUrl;
+  const ready = item.status === 'done' && item.previewUrl;
 
   return (
     <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-5 overflow-auto p-8">
@@ -48,7 +74,7 @@ const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps
       >
         {ready ? (
           <img
-            src={item.blobUrl}
+            src={item.previewUrl}
             alt={item.file.name}
             onClick={() => setZoomed(true)}
             className="max-h-[60vh] w-auto max-w-full cursor-zoom-in object-contain"
@@ -95,7 +121,7 @@ const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps
             <X className="h-6 w-6 text-white" />
           </button>
           <img
-            src={item.blobUrl}
+            src={zoomUrl ?? item.previewUrl}
             alt={item.file.name}
             className="max-h-full max-w-full object-contain"
             onClick={(event) => event.stopPropagation()}
