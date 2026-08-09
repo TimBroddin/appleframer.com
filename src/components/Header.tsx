@@ -1,27 +1,82 @@
-import { Smartphone } from 'lucide-react';
+import { Moon, Sun } from 'lucide-react';
+import { Theme } from '../hooks/useTheme';
 
-const Header = () => {
-  return (
-    <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-10">
-      <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <h1 className="text-xl font-medium">
-          <a href="/" className="flex items-center gap-2">          
-            <Smartphone className="h-6 w-6 text-blue-500" />
+export type ViewMode = 'sheet' | 'single';
 
-            AppleFramer
-            </a>  
-            </h1>
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">Process locally • No uploads • Download as zip • <a href="https://github.com/timbroddin/appleframer.com" target="_blank" className="text-blue-500 hover:text-blue-600">Open source</a></span>
-           
-          </div>
-        </div>
-      </div>
-    </header>
-  );
-};
+interface HeaderProps {
+  /** Batch summary shown beside the wordmark, e.g. "8 shots · 3 devices". */
+  summary?: string;
+  view: ViewMode;
+  onViewChange: (view: ViewMode) => void;
+  /** View toggle only makes sense once there is something to look at. */
+  showViewToggle: boolean;
+  theme: Theme;
+  onToggleTheme: () => void;
+}
+
+const Header = ({
+  summary,
+  view,
+  onViewChange,
+  showViewToggle,
+  theme,
+  onToggleTheme,
+}: HeaderProps) => (
+  <header className="flex h-[54px] flex-none items-center justify-between border-b border-hairline bg-surface px-5">
+    <div className="flex min-w-0 items-center gap-2.5">
+      <a href="/" className="flex items-center gap-2.5">
+        <span className="h-[22px] w-[22px] flex-none rounded-md bg-accent" />
+        <span className="text-[15.5px] font-bold tracking-[-0.02em] text-ink">
+          AppleFramer
+        </span>
+      </a>
+      {summary ? (
+        <span className="ml-1.5 truncate pt-px font-mono text-[11.5px] leading-none text-ink-soft">
+          {summary}
+        </span>
+      ) : (
+        <span className="ml-1.5 hidden rounded px-2 py-0.5 font-mono text-[10.5px] text-ink-soft sm:inline bg-surface-muted">
+          runs in-browser
+        </span>
+      )}
+    </div>
+
+    <div className="flex flex-none items-center gap-2.5">
+      {showViewToggle && (
+        <span className="inline-flex gap-[3px] rounded-lg bg-surface-muted p-[3px] text-sm-minus">
+          {(['sheet', 'single'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => onViewChange(mode)}
+              aria-pressed={view === mode}
+              className={`rounded-md px-3 py-1.5 capitalize transition-colors ${
+                view === mode
+                  ? 'bg-surface font-semibold text-ink shadow-sm'
+                  : 'text-ink-soft hover:text-ink'
+              }`}
+            >
+              {mode}
+            </button>
+          ))}
+        </span>
+      )}
+
+      <button
+        type="button"
+        onClick={onToggleTheme}
+        title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        className="rounded-lg bg-surface-muted p-2 text-ink-soft transition-colors hover:text-ink"
+      >
+        {theme === 'dark' ? (
+          <Moon className="h-3.5 w-3.5" />
+        ) : (
+          <Sun className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </div>
+  </header>
+);
 
 export default Header;
