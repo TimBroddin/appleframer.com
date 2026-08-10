@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Check, Plus } from 'lucide-react';
+import { Check, Maximize2, Plus } from 'lucide-react';
 import { QueueItem, frameLabel } from '../lib/queue';
 
 interface ContactSheetProps {
@@ -9,6 +9,7 @@ interface ContactSheetProps {
   /** Mirrored behind each thumbnail so cards match the exported PNG. */
   backgroundColor: string | null;
   onToggleSelect: (id: string, event: React.MouseEvent) => void;
+  onZoom: (id: string) => void;
   onAddMore: () => void;
 }
 
@@ -40,22 +41,25 @@ const Card = memo(function Card({
   selected,
   backgroundColor,
   onToggleSelect,
+  onZoom,
 }: {
   item: QueueItem;
   selected: boolean;
   backgroundColor: string | null;
   onToggleSelect: (id: string, event: React.MouseEvent) => void;
+  onZoom: (id: string) => void;
 }) {
   // Show the framed render once it exists, falling back to the raw screenshot
   // so a card is never empty while the queue works through the batch.
   const src = item.previewUrl ?? item.sourceUrl;
 
+  const canZoom = item.status === 'done' && Boolean(item.previewUrl);
+
   return (
-    <button
-      type="button"
-      onClick={(event) => onToggleSelect(item.id, event)}
-      aria-pressed={selected}
-      className={`flex flex-col gap-2.5 rounded-card p-3 text-left transition-shadow ${
+    // A div rather than a button: the zoom control is itself a button, and
+    // nesting buttons is invalid. The select button below covers the card.
+    <div
+      className={`group relative flex flex-col gap-2.5 rounded-card p-3 text-left transition-shadow ${
         selected
           ? 'border-2 border-accent bg-surface shadow-card'
           : 'border border-hairline bg-surface hover:shadow-card'
@@ -68,7 +72,7 @@ const Card = memo(function Card({
         style={backgroundColor ? { background: backgroundColor } : undefined}
       >
         <span
-          className={`absolute left-1.5 top-1.5 flex h-[17px] w-[17px] items-center justify-center rounded-md ${
+          className={`absolute left-1.5 top-1.5 z-10 flex h-[17px] w-[17px] items-center justify-center rounded-md ${
             selected
               ? 'bg-accent text-white'
               : 'border-[1.5px] border-hairline bg-surface'
@@ -104,7 +108,28 @@ const Card = memo(function Card({
             : STATUS_TEXT[item.status]}
         </div>
       </div>
-    </button>
+
+      {/* Stretched over the whole card so clicking anywhere selects. */}
+      <button
+        type="button"
+        onClick={(event) => onToggleSelect(item.id, event)}
+        aria-pressed={selected}
+        aria-label={`Select ${item.file.name}`}
+        className="absolute inset-0 rounded-card"
+      />
+
+      {canZoom && (
+        <button
+          type="button"
+          onClick={() => onZoom(item.id)}
+          aria-label={`Enlarge ${item.file.name}`}
+          title="Enlarge"
+          className="absolute right-4 top-4 rounded-md bg-surface/90 p-1.5 text-ink-soft opacity-0 shadow-card backdrop-blur transition-opacity hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
   );
 });
 
@@ -125,6 +150,7 @@ const ContactSheet = ({
   groupByDevice,
   backgroundColor,
   onToggleSelect,
+  onZoom,
   onAddMore,
 }: ContactSheetProps) => {
   const gridClass =
@@ -141,6 +167,7 @@ const ContactSheet = ({
               selected={selectedIds.has(item.id)}
               backgroundColor={backgroundColor}
               onToggleSelect={onToggleSelect}
+              onZoom={onZoom}
             />
           ))}
           <AddMoreTile onAddMore={onAddMore} />
@@ -174,6 +201,7 @@ const ContactSheet = ({
                   selected={selectedIds.has(item.id)}
                   backgroundColor={backgroundColor}
                   onToggleSelect={onToggleSelect}
+                  onZoom={onZoom}
                 />
               ))}
             </div>

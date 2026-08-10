@@ -22,13 +22,13 @@ function App() {
   }, []);
 
   return (
-    // With images loaded this is a fixed app shell whose panes scroll
-    // independently. Empty, it is a landing page that scrolls as one document,
-    // so the footer follows the marketing content instead of being stranded
-    // halfway down the page.
+    // A fixed app shell in both states: with images the panes scroll
+    // independently, and the landing page is laid out to fit one screen with
+    // its copy column scrolling on its own if it needs to. min-h-screen on
+    // small viewports so a stacked landing page can still grow.
     <div
       className={`flex flex-col bg-canvas text-ink ${
-        hasItems ? 'h-screen' : 'min-h-screen'
+        hasItems ? 'h-screen' : 'min-h-screen lg:h-screen'
       }`}
     >
       <Header

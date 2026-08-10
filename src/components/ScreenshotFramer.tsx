@@ -17,6 +17,7 @@ import ContactSheet from './ContactSheet';
 import Inspector from './Inspector';
 import SelectionBar from './SelectionBar';
 import SinglePreview from './SinglePreview';
+import ZoomOverlay from './ZoomOverlay';
 import { ViewMode } from './Header';
 
 interface ScreenshotFramerProps {
@@ -45,6 +46,7 @@ const ScreenshotFramer = ({
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [groupByDevice, setGroupByDevice] = useState(false);
+  const [zoomedId, setZoomedId] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const addMoreInputRef = useRef<HTMLInputElement>(null);
   const lastClickedIdRef = useRef<string | null>(null);
@@ -175,6 +177,12 @@ const ScreenshotFramer = ({
   const selectedItems = useMemo(
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds]
+  );
+
+  // Resolved from the live list so the overlay closes if its item is removed.
+  const zoomedItem = useMemo(
+    () => items.find((item) => item.id === zoomedId),
+    [items, zoomedId]
   );
 
   // Read through a ref so the handler identity is stable: it is passed to every
@@ -362,9 +370,9 @@ const ScreenshotFramer = ({
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-1 flex-col">
-        <UploadZone onFilesSelected={(files) => void handleFilesSelected(files)} />
-      </div>
+      // No wrapper: UploadZone is already a flex column, and an extra
+      // unconstrained div here let the landing page grow past the viewport.
+      <UploadZone onFilesSelected={(files) => void handleFilesSelected(files)} />
     );
   }
 
@@ -390,6 +398,7 @@ const ScreenshotFramer = ({
             groupByDevice={groupByDevice}
             backgroundColor={backgroundColor}
             onToggleSelect={handleToggleSelect}
+            onZoom={setZoomedId}
             onAddMore={() => addMoreInputRef.current?.click()}
           />
         ) : (
@@ -430,6 +439,14 @@ const ScreenshotFramer = ({
           event.target.value = '';
         }}
       />
+
+      {zoomedItem && (
+        <ZoomOverlay
+          item={zoomedItem}
+          backgroundColor={backgroundColor}
+          onClose={() => setZoomedId(null)}
+        />
+      )}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Download, X } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { QueueItem, frameLabelDetailed } from '../lib/queue';
-import { renderFrameToBlob } from '../lib/renderFrame';
+import ZoomOverlay from './ZoomOverlay';
 
 interface SinglePreviewProps {
   item: QueueItem | undefined;
@@ -11,45 +11,11 @@ interface SinglePreviewProps {
 
 /**
  * Large preview of one image. Unlike the old FramePreview this does no
- * compositing of its own — the render queue has already produced a PNG, so
- * this just displays it. That keeps a single rendering code path.
+ * compositing of its own — the render queue has already produced the preview,
+ * so this just displays it. That keeps a single rendering code path.
  */
 const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps) => {
   const [zoomed, setZoomed] = useState(false);
-  // The sheet preview is only ~420px tall, so zooming renders the real thing
-  // rather than upscaling a thumbnail into a blurry mess.
-  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!zoomed || !item?.frame) return;
-    let cancelled = false;
-    let url: string | null = null;
-
-    renderFrameToBlob(item.file, item.frame, { backgroundColor })
-      .then((blob) => {
-        if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setZoomUrl(url);
-      })
-      .catch(() => {
-        /* Fall back to the preview below. */
-      });
-
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-      setZoomUrl(null);
-    };
-  }, [zoomed, item?.id, item?.frame, item?.file, backgroundColor]);
-
-  useEffect(() => {
-    if (!zoomed) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setZoomed(false);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [zoomed]);
 
   // Reset zoom when switching images so it doesn't linger on the wrong one.
   useEffect(() => setZoomed(false), [item?.id]);
@@ -72,20 +38,14 @@ const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps
         }`}
         style={backgroundColor ? { background: backgroundColor } : undefined}
       >
-        {ready ? (
-          <img
-            src={item.previewUrl}
-            alt={item.file.name}
-            onClick={() => setZoomed(true)}
-            className="max-h-[60vh] w-auto max-w-full cursor-zoom-in object-contain"
-          />
-        ) : (
-          <img
-            src={item.sourceUrl}
-            alt={item.file.name}
-            className="max-h-[60vh] w-auto max-w-full object-contain opacity-40"
-          />
-        )}
+        <img
+          src={ready ? item.previewUrl : item.sourceUrl}
+          alt={item.file.name}
+          onClick={() => ready && setZoomed(true)}
+          className={`max-h-[60vh] w-auto max-w-full object-contain ${
+            ready ? 'cursor-zoom-in' : 'opacity-40'
+          }`}
+        />
       </div>
 
       <div className="flex flex-col items-center gap-2">
@@ -105,28 +65,11 @@ const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps
       </div>
 
       {zoomed && ready && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
-          onClick={() => setZoomed(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${item.file.name} enlarged`}
-        >
-          <button
-            type="button"
-            onClick={() => setZoomed(false)}
-            aria-label="Close"
-            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 transition-colors hover:bg-white/20"
-          >
-            <X className="h-6 w-6 text-white" />
-          </button>
-          <img
-            src={zoomUrl ?? item.previewUrl}
-            alt={item.file.name}
-            className="max-h-full max-w-full object-contain"
-            onClick={(event) => event.stopPropagation()}
-          />
-        </div>
+        <ZoomOverlay
+          item={item}
+          backgroundColor={backgroundColor}
+          onClose={() => setZoomed(false)}
+        />
       )}
     </div>
   );

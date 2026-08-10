@@ -79,22 +79,34 @@ export function frameLabelDetailed(frame: DeviceFrame | undefined): string {
 }
 
 /**
- * Finds the equivalent frame in another orientation/colour, keeping every other
- * facet fixed. Returns undefined when no such variant exists.
+ * Finds the equivalent frame with one facet changed, keeping the rest fixed.
+ *
+ * Switching size or colour may have no exact counterpart — an 11" iPad might
+ * not offer the colour the 13" was using — so the match falls back
+ * progressively rather than returning nothing and disabling the control.
  */
 export function findSibling(
   frames: DeviceFrame[],
   frame: DeviceFrame,
-  patch: Partial<Pick<DeviceFrame, 'orientation' | 'color'>>
+  patch: Partial<Pick<DeviceFrame, 'orientation' | 'color' | 'variant'>>
 ): DeviceFrame | undefined {
   const target = { ...frame, ...patch };
-  return frames.find(
+  const sameModel = frames.filter(
     (candidate) =>
       candidate.category === target.category &&
       candidate.model === target.model &&
       candidate.version === target.version &&
-      candidate.variant === target.variant &&
-      candidate.color === target.color &&
-      candidate.orientation === target.orientation
+      candidate.variant === target.variant
+  );
+
+  return (
+    sameModel.find(
+      (c) => c.color === target.color && c.orientation === target.orientation
+    ) ??
+    // Keep the orientation before the colour: a portrait shot flipped to
+    // landscape is far more disruptive than a different finish.
+    sameModel.find((c) => c.orientation === target.orientation) ??
+    sameModel.find((c) => c.color === target.color) ??
+    sameModel[0]
   );
 }

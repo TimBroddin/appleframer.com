@@ -69,49 +69,43 @@ const UploadZone = ({ onFilesSelected }: UploadZoneProps) => {
   };
 
   return (
-    // The drop target fills the first screen, with supporting content below the
-    // fold: search engines get real text to index, without pushing the tool
-    // itself down the page. The document scrolls, not this element — App drops
-    // its fixed-height shell while the sheet is empty.
-    <div className="flex flex-1 flex-col">
-      {/* 54px header + 36px footer. */}
-      <div className="flex min-h-[calc(100vh-90px)] p-[22px]">
-        <div
-          className={`flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed transition-colors ${
-            isDragging ? 'border-accent bg-accent-wash' : 'border-hairline bg-surface'
-          }`}
+    // Two columns inside one viewport: the drop target on the left, the
+    // explanation on the right. Stacks on narrow screens, where a side-by-side
+    // split would leave both halves too cramped to read. Height comes from the
+    // flex parent rather than a viewport calc, so it stays correct if the
+    // header or footer height changes.
+    <div className="flex min-h-0 flex-1 flex-col gap-6 p-[22px] lg:flex-row lg:gap-8">
+      <div
+        className={`flex min-h-[340px] flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border-2 border-dashed transition-colors lg:min-h-0 ${
+          isDragging ? 'border-accent bg-accent-wash' : 'border-hairline bg-surface'
+        }`}
+      >
+        <BeforeAfter />
+
+        <h1 className="m-0 mt-1 max-w-[20ch] text-center text-[26px] font-bold leading-tight tracking-[-0.025em] text-ink">
+          Put your screenshots in an iPhone
+        </h1>
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="mt-1 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-deep"
         >
-          <BeforeAfter />
+          Choose screenshots
+        </button>
 
-          <h1 className="m-0 mt-1 max-w-[20ch] text-center text-[28px] font-bold leading-tight tracking-[-0.025em] text-ink">
-            Put your screenshots in an iPhone
-          </h1>
-          <p className="m-0 max-w-[42ch] text-center text-[15px] leading-relaxed text-ink-soft">
-            Drop in a screenshot and get it back inside the device it came from,
-            ready for the App Store. Works for iPad and Apple Watch too.
-          </p>
+        <span className="text-[13px] text-ink-faint">
+          or drag them anywhere on this page
+        </span>
 
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="mt-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-deep"
-          >
-            Choose screenshots
-          </button>
-
-          <span className="text-[13px] text-ink-faint">
-            or drag them anywhere on this page
-          </span>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*"
-            className="hidden"
-            onChange={handleFileInputChange}
-          />
-        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileInputChange}
+        />
       </div>
 
       <LandingContent />
@@ -146,7 +140,7 @@ const BeforeAfter = () => (
         alt=""
         width={134}
         height={291}
-        className="h-[118px] w-auto rounded-[2px] ring-1 ring-hairline sm:h-[142px]"
+        className="h-[13vh] max-h-[142px] min-h-[86px] w-auto rounded-[2px] ring-1 ring-hairline"
       />
       <span className="font-mono text-2xs text-ink-faint">your screenshot</span>
     </div>
@@ -159,7 +153,7 @@ const BeforeAfter = () => (
         alt=""
         width={210}
         height={436}
-        className="h-[176px] w-auto sm:h-[212px]"
+        className="h-[19.5vh] max-h-[212px] min-h-[128px] w-auto"
       />
       <span className="font-mono text-2xs text-accent">what you get</span>
     </div>
@@ -199,58 +193,45 @@ const FEATURES: Array<{ title: string; body: string }> = [
  * actually search for without cluttering the tool.
  */
 const LandingContent = () => (
-  <div className="border-t border-hairline bg-surface px-6 py-14">
-    <div className="mx-auto flex max-w-3xl flex-col gap-12">
-      <section className="flex flex-col gap-3">
-        <h2 className="m-0 text-xl font-bold tracking-[-0.02em] text-ink">
-          Device frames for App Store screenshots
-        </h2>
-        <p className="m-0 text-[15px] leading-relaxed text-ink-soft">
-          A screenshot on its own is just a rectangle. Put it in the phone it
-          came from and it reads as a real app. AppleFramer does that for
-          iPhone, iPad and Apple Watch screenshots — for App Store pages, press
-          kits, or anywhere you want a mockup — and exports a PNG with either a
-          transparent or a solid background.
-        </p>
-      </section>
+  // Scrolls within its own column so the page as a whole stays one screen tall.
+  <div className="flex flex-col gap-7 lg:w-[420px] lg:flex-none lg:overflow-y-auto lg:pr-1 xl:w-[470px]">
+    <section className="flex flex-col gap-2.5">
+      <h2 className="m-0 text-lg font-bold tracking-[-0.02em] text-ink">
+        Device frames for App Store screenshots
+      </h2>
+      <p className="m-0 text-[14.5px] leading-relaxed text-ink-soft">
+        A screenshot on its own is just a rectangle. Put it in the phone it came
+        from and it reads as a real app. AppleFramer does that for iPhone, iPad
+        and Apple Watch, and exports a PNG with either a transparent or a solid
+        background.
+      </p>
+    </section>
 
-      <section className="flex flex-col gap-5">
-        <h2 className="m-0 text-xl font-bold tracking-[-0.02em] text-ink">
-          Why use it
-        </h2>
-        <div className="grid gap-5 sm:grid-cols-2">
-          {FEATURES.map((feature) => (
-            <div key={feature.title} className="flex flex-col gap-1.5">
-              <h3 className="m-0 text-[15px] font-semibold text-ink">{feature.title}</h3>
-              <p className="m-0 text-[14px] leading-relaxed text-ink-soft">
-                {feature.body}
-              </p>
-            </div>
-          ))}
+    <ol className="m-0 flex list-none flex-col gap-2.5 p-0">
+      {[
+        'Drop your screenshots in, or paste them from the clipboard.',
+        'Each one gets matched to a device. Change any of them in the panel on the right.',
+        'Pick a background and how files are named, then download one or the whole batch.',
+      ].map((step, index) => (
+        <li key={step} className="flex gap-2.5 text-[14px] leading-relaxed text-ink-soft">
+          <span className="flex h-5 w-5 flex-none items-center justify-center rounded-full bg-accent-wash font-mono text-2xs font-semibold text-accent-deep">
+            {index + 1}
+          </span>
+          {step}
+        </li>
+      ))}
+    </ol>
+
+    <section className="grid gap-x-6 gap-y-4 border-t border-hairline pt-6 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+      {FEATURES.map((feature) => (
+        <div key={feature.title} className="flex flex-col gap-1">
+          <h3 className="m-0 text-[14px] font-semibold text-ink">{feature.title}</h3>
+          <p className="m-0 text-[13.5px] leading-relaxed text-ink-soft">
+            {feature.body}
+          </p>
         </div>
-      </section>
-
-      <section className="flex flex-col gap-5">
-        <h2 className="m-0 text-xl font-bold tracking-[-0.02em] text-ink">
-          How it works
-        </h2>
-        <ol className="m-0 flex list-none flex-col gap-3 p-0">
-          {[
-            'Drop your screenshots in, or paste them from the clipboard.',
-            'Each one gets matched to a device. Change any of them in the panel on the right.',
-            'Pick a background and how the files should be named, then download one or the whole batch.',
-          ].map((step, index) => (
-            <li key={step} className="flex gap-3 text-[14px] leading-relaxed text-ink-soft">
-              <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-accent-wash font-mono text-2xs font-semibold text-accent-deep">
-                {index + 1}
-              </span>
-              {step}
-            </li>
-          ))}
-        </ol>
-      </section>
-
-    </div>
+      ))}
+    </section>
   </div>
 );
 

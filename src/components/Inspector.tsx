@@ -67,6 +67,29 @@ const Inspector = ({
     [frames]
   );
 
+  /**
+   * Physical device sizes for the current model — iPad Pro 13" vs 11", Watch
+   * 45mm vs 41mm. The old settings modal surfaced this as its own "Size"
+   * section; it deserves a row here rather than only living in the model
+   * popover's third column.
+   */
+  const sizes = useMemo(() => {
+    if (!commonFrame) return [];
+    return Array.from(
+      new Set(
+        frames
+          .filter(
+            (f) =>
+              f.category === commonFrame.category &&
+              f.model === commonFrame.model &&
+              f.version === commonFrame.version &&
+              f.variant
+          )
+          .map((f) => f.variant as string)
+      )
+    );
+  }, [frames, commonFrame]);
+
   const colors = useMemo(() => {
     if (!commonFrame) return [];
     return Array.from(
@@ -168,6 +191,36 @@ const Inspector = ({
             </div>
 
             <DevicePicker frames={frames} current={commonFrame} onSelect={onSetFrame} />
+
+            {sizes.length > 1 && commonFrame && (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-hairline px-3 py-2 text-[13px]">
+                <span className="flex-none text-ink-soft">Size</span>
+                <span className="flex flex-wrap justify-end gap-1">
+                  {sizes.map((size) => {
+                    const active = commonFrame.variant === size;
+                    return (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => {
+                          const sibling = findSibling(frames, commonFrame, {
+                            variant: size,
+                          });
+                          if (sibling) onSetFrame(sibling);
+                        }}
+                        className={`rounded-md px-2 py-1 text-sm-minus transition-colors ${
+                          active
+                            ? 'bg-accent font-semibold text-white'
+                            : 'bg-surface-muted text-ink-soft hover:text-ink'
+                        }`}
+                      >
+                        {size}
+                      </button>
+                    );
+                  })}
+                </span>
+              </div>
+            )}
 
             {colors.length > 0 && commonFrame && (
               <div className="flex items-center justify-between rounded-lg border border-hairline px-3 py-2.5 text-[13px]">
