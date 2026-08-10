@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { frameLabel, frameLabelDetailed } from './queue';
+import { frameLabel, frameLabelDetailed, isVideoFile } from './queue';
 import { DeviceFrame } from '../hooks/useFrames';
 
 const make = (over: Partial<DeviceFrame>): DeviceFrame => ({
@@ -57,4 +57,22 @@ test('detailed label appends the colour', () => {
 test('falls back to the coordinate name when nothing else is set', () => {
   const frame = make({ category: '', model: '', version: undefined });
   expect(frameLabel(frame)).toBe('fallback');
+});
+
+const fileOf = (name: string, type: string) => new File([], name, { type });
+
+test('video MIME types are recognised', () => {
+  expect(isVideoFile(fileOf('demo.mp4', 'video/mp4'))).toBe(true);
+  expect(isVideoFile(fileOf('demo.mov', 'video/quicktime'))).toBe(true);
+});
+
+test('images are not videos', () => {
+  expect(isVideoFile(fileOf('shot.png', 'image/png'))).toBe(false);
+});
+
+test('falls back to the extension when the MIME type is missing', () => {
+  // Screen recordings dragged from some tools arrive with an empty type.
+  expect(isVideoFile(fileOf('demo.mp4', ''))).toBe(true);
+  expect(isVideoFile(fileOf('demo.MOV', ''))).toBe(true);
+  expect(isVideoFile(fileOf('shot.png', ''))).toBe(false);
 });

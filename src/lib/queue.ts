@@ -1,6 +1,13 @@
 import { DeviceFrame } from '../hooks/useFrames';
 
-export type RenderStatus = 'detecting' | 'queued' | 'rendering' | 'done' | 'error' | 'unmatched';
+export type RenderStatus =
+  | 'detecting'
+  | 'queued'
+  | 'rendering'
+  | 'encoding'
+  | 'done'
+  | 'error'
+  | 'unmatched';
 
 export interface QueueItem {
   /** Stable identity for React keys and selection, independent of array order. */
@@ -21,10 +28,38 @@ export interface QueueItem {
   /** Raw screenshot preview, shown until the framed render lands. */
   sourceUrl: string;
   error?: string;
+  /**
+   * Present only on video items. Encoding takes orders of magnitude longer
+   * than a still render, so progress has to be reported rather than implied
+   * by a spinner.
+   */
+  video?: { duration: number; frameCount: number; progress: number };
+
+  /**
+   * Object URL of the encoded MP4. Unlike the data-URL previews this is not
+   * reclaimed by the GC, so it must be revoked when the item is removed or
+   * re-queued.
+   */
+  videoUrl?: string;
 }
 
 let nextId = 0;
 export const createItemId = () => `item-${nextId++}`;
+
+/** Extensions checked when a dropped file carries no MIME type. */
+const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm'];
+
+/**
+ * Videos take a different render path to images, so the queue has to tell them
+ * apart. Some tools hand over screen recordings with an empty `type`, so the
+ * extension is a necessary fallback rather than belt-and-braces.
+ */
+export function isVideoFile(file: File): boolean {
+  if (file.type.startsWith('video/')) return true;
+  if (file.type) return false;
+  const name = file.name.toLowerCase();
+  return VIDEO_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
 
 /** Matching tolerance in pixels for auto-detecting a device from screenshot size. */
 const TOLERANCE = 2;
