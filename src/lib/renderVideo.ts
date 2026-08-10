@@ -3,7 +3,7 @@ import { createFile, MP4BoxBuffer, MultiBufferStream } from 'mp4box';
 import type { ISOFile, Sample, Track, VisualSampleEntry } from 'mp4box';
 import type { DeviceFrame } from '../hooks/useFrames';
 import { renderFrameToCanvas } from './renderFrame';
-import { assertVideoSupported, H264_CODEC } from './videoSupport';
+import { assertVideoSupported, H264_CODEC, VIDEO_UNSUPPORTED_MESSAGE } from './videoSupport';
 
 export interface VideoInfo {
   width: number;
@@ -129,12 +129,17 @@ async function awaitEncoderCapacity(encoder: VideoEncoder): Promise<void> {
  * methods. An empty one grows on write exactly like a bare DataStream.
  */
 function decoderDescription(entry: VisualSampleEntry): Uint8Array | undefined {
-  const config = entry.avcC ?? entry.hvcC ?? entry.vpcC ?? entry.av1C;
+  const config = entry.avcC ?? entry.hvcC ?? entry.av1C ?? entry.vpcC;
   if (!config) return undefined;
+
+  // vpcC is a FullBox, whose writeHeader adds a version byte and 24-bit flags on
+  // top of the ordinary 8-byte box header; avcC, hvcC and av1C are plain Boxes.
+  // Slicing 8 for vpcC would leave four stray leading bytes.
+  const headerSize = config === entry.vpcC ? 12 : 8;
 
   const stream = new MultiBufferStream();
   config.write(stream);
-  return new Uint8Array(stream.buffer.slice(8, stream.byteLength));
+  return new Uint8Array(stream.buffer.slice(headerSize, stream.byteLength));
 }
 
 interface DemuxedTrack {
@@ -327,16 +332,33 @@ export async function renderVideoToBlob(
 
   let muxer: Muxer<ArrayBufferTarget> | undefined;
   let encoder: VideoEncoder | undefined;
+  let outputCtx: CanvasRenderingContext2D | undefined;
   let encoderError: Error | undefined;
   let encoded = 0;
 
-  const configure = () => {
+  const configure = async () => {
     // H.264 requires even dimensions; odd ones are rejected outright. Cropping
     // the last row/column rather than scaling keeps every other pixel exact.
     const width = canvas.width - (canvas.width % 2);
     const height = canvas.height - (canvas.height % 2);
     outputCanvas.width = width;
     outputCanvas.height = height;
+
+    outputCtx = outputCanvas.getContext('2d') ?? undefined;
+    if (!outputCtx) throw new Error('No output canvas context');
+
+    // The early gate ran at a default size before the frame was known. The real
+    // output is the frame PNG's size, which is much larger — iPad Pro 12.9 is
+    // 2288x2973 — and some hardware encoders reject sizes above their supported
+    // profile. Asking now, rather than letting configure() throw, keeps the
+    // refusal a clear message instead of a codec error raised after the whole
+    // file has already been demuxed.
+    const { supported } = await VideoEncoder.isConfigSupported({
+      codec: H264_CODEC,
+      width,
+      height,
+    });
+    if (!supported) throw new Error(VIDEO_UNSUPPORTED_MESSAGE);
 
     muxer = new Muxer({
       target: new ArrayBufferTarget(),
@@ -346,6 +368,13 @@ export async function renderVideoToBlob(
       // clip, or a phone recording with an edit list — throws outright under the
       // default 'strict' behaviour. Rebasing to zero is what a trimmed clip
       // means anyway: the output starts at its own beginning.
+      //
+      // TASK 7 (audio): 'offset' rebases each track INDEPENDENTLY by its own
+      // first timestamp. A recording whose audio starts 80ms before its video
+      // would have that real offset silently collapsed to zero, desyncing A/V.
+      // Switch to 'cross-track-offset' — which rebases both tracks by the single
+      // earliest timestamp — once an audio track exists. This will not fail
+      // loudly; it just drifts.
       firstTimestampBehavior: 'offset',
     });
 
@@ -376,15 +405,21 @@ export async function renderVideoToBlob(
           signal,
           scratchCanvas,
         });
-        if (!encoder) configure();
+        if (!encoder) await configure();
         await awaitEncoderCapacity(encoder!);
 
         // Copy into the even-sized canvas. Encoding the composite canvas
         // directly would hand the encoder a frame whose size disagrees with its
         // configured size on every odd-dimension device frame.
-        const outputCtx = outputCanvas.getContext('2d');
-        if (!outputCtx) throw new Error('No output canvas context');
-        outputCtx.drawImage(canvas, 0, 0);
+        //
+        // Cleared first because drawImage composites source-over onto whatever
+        // is already there. renderFrameToCanvas clears its own canvas but only
+        // paints a background when one was asked for, so with the default
+        // transparent background every pixel outside the bezel stays clear and
+        // would otherwise retain frame N-1 — the same ghosting the scratch
+        // canvas hit one layer in. H.264 has no alpha, so it bakes in.
+        outputCtx!.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+        outputCtx!.drawImage(canvas, 0, 0);
 
         // A second VideoFrame, wrapping the composited canvas. It is closed in
         // the same breath it is encoded: encode() copies what it needs
