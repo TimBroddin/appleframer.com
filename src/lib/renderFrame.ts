@@ -10,13 +10,31 @@ import { DeviceFrame, getFramePath } from '../hooks/useFrames';
  */
 
 /** Anything drawImage accepts and that reports intrinsic dimensions. */
-export type ImageSource = ImageBitmap | HTMLImageElement;
+export type ImageSource = ImageBitmap | HTMLImageElement | VideoFrame;
+
+/**
+ * VideoFrame reports displayWidth/displayHeight rather than width/height.
+ * Display dimensions are the correct choice: coded dimensions are padded up to
+ * macroblock boundaries, and compositing that padding shows as an edge artifact
+ * inside the bezel.
+ */
+export const sourceWidth = (src: ImageSource): number =>
+  'displayWidth' in src ? src.displayWidth : src.width;
+
+export const sourceHeight = (src: ImageSource): number =>
+  'displayHeight' in src ? src.displayHeight : src.height;
 
 export interface RenderOptions {
   /** Solid background behind the device, or null for transparent. */
   backgroundColor?: string | null;
   /** Abort signal — checked at each async boundary so superseded renders stop early. */
   signal?: AbortSignal;
+  /**
+   * Reusable scratch canvas. Video calls this once per frame; allocating a
+   * canvas each time is ~1,800 allocations per minute at 30fps and dominates
+   * encode time. Omit it and one is allocated per call, as before.
+   */
+  scratchCanvas?: HTMLCanvasElement;
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -86,7 +104,7 @@ export async function renderFrameToCanvas(
   canvas: HTMLCanvasElement,
   screenImg: ImageSource,
   frame: DeviceFrame,
-  { backgroundColor = null, signal }: RenderOptions = {}
+  { backgroundColor = null, signal, scratchCanvas }: RenderOptions = {}
 ): Promise<void> {
   throwIfAborted(signal);
 
@@ -113,18 +131,23 @@ export async function renderFrameToCanvas(
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
-  const tempCanvas = document.createElement('canvas');
+  const tempCanvas = scratchCanvas ?? document.createElement('canvas');
   tempCanvas.width = canvas.width;
   tempCanvas.height = canvas.height;
   const tempCtx = tempCanvas.getContext('2d');
   if (!tempCtx) throw new Error('No temp canvas context');
+  // A reused scratch canvas still holds the previous frame's pixels. Sizing a
+  // FRESH canvas already clears it, but assigning the same width/height to an
+  // already-that-size canvas is a no-op in most engines, so the clear below
+  // cannot be inferred from the resize above and must happen unconditionally.
+  tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
   tempCtx.imageSmoothingEnabled = false;
 
   const { x, y, screenshotWidth, screenshotHeight } = frame.coordinates;
   const screenshotX = parseInt(x);
   const screenshotY = parseInt(y);
-  const targetWidth = screenshotWidth || screenImg.width;
-  const targetHeight = screenshotHeight || screenImg.height;
+  const targetWidth = screenshotWidth || sourceWidth(screenImg);
+  const targetHeight = screenshotHeight || sourceHeight(screenImg);
 
   // The screenshot fills the screen area exactly. A 3px inset used to guard
   // against bleeding past rounded corners on maskless frames, but the
