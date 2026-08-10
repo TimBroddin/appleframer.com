@@ -1,6 +1,8 @@
 import { test, expect } from 'bun:test';
 import {
   estimateFrameCount,
+  PROBE_FAILED_MESSAGE,
+  PROBE_TIMEOUT_MS,
   progressFraction,
   timestampBase,
   trackTimeShift,
@@ -33,6 +35,23 @@ test('progress is clamped to 1 when more frames arrive than estimated', () => {
 
 test('an unknown total reports no progress rather than NaN', () => {
   expect(progressFraction(10, 0)).toBe(0);
+});
+
+test('the probe deadline leaves room for a slow disk but not for a dead card', () => {
+  // Both bounds are real failures, not style. Too short rejects a large but
+  // perfectly good recording whose moov atom sits at the end of the file, so
+  // the read has to seek across the whole thing. Too long and a truncated file
+  // holds a detection worker slot while the user watches a card that is
+  // already dead.
+  expect(PROBE_TIMEOUT_MS).toBeGreaterThanOrEqual(10_000);
+  expect(PROBE_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
+});
+
+test('a stalled probe fails with the same message as a rejected one', () => {
+  // The two are one problem with one remedy from the user's side, and the
+  // detection path routes both to 'unmatched' identically. A second wording
+  // would only ask them to tell apart cases they cannot act on differently.
+  expect(PROBE_FAILED_MESSAGE).toContain('Could not read this video');
 });
 
 test('a track with no edit list is not shifted', () => {

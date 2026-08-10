@@ -26,11 +26,45 @@ export function estimateFrameCount(duration: number, fps: number): number {
 }
 
 /**
+ * How long a metadata probe may take before it is treated as a dead file.
+ *
+ * A <video> element that accepts a source and then stalls fires NEITHER
+ * loadedmetadata NOR error — a truncated or subtly corrupt MP4 is the realistic
+ * way to get there. Without a bound the probe promise simply never settles,
+ * which is survivable in isolation but not for the callers this now has: the
+ * probe runs inside a fixed-width detection worker pool, so a stalled file
+ * consumes a worker slot permanently and enough of them deadlock detection
+ * outright.
+ *
+ * 15 seconds is chosen to sit clear of both failure modes rather than to be
+ * quick. `preload = 'metadata'` reads the container header, not the media, so
+ * even a multi-gigabyte recording only needs enough IO to reach the moov atom —
+ * on a slow external disk that is seconds, not tens of seconds. The margin is
+ * mostly for a moov at the END of the file, which some cameras and screen
+ * recorders write and which forces a seek across the whole thing. Going much
+ * shorter risks rejecting a large but perfectly good recording; going much
+ * longer leaves the user staring at a card that is already dead.
+ */
+export const PROBE_TIMEOUT_MS = 15_000;
+
+/**
+ * Shown when a probe is abandoned. Deliberately the same wording as the
+ * `error` path: from the user's side "the browser stalled on this file" and
+ * "the browser rejected this file" are the same problem with the same remedy,
+ * and inventing a second message would only ask them to tell the two apart.
+ */
+export const PROBE_FAILED_MESSAGE =
+  'Could not read this video. It may be corrupt or use an unsupported codec.';
+
+/**
  * Reads dimensions and duration without decoding the whole file.
  *
  * Uses a <video> element rather than mp4box: metadata is all that device
  * detection needs, and the element handles every container the browser can
  * play, including ones mp4box does not parse.
+ *
+ * Always settles. See PROBE_TIMEOUT_MS for why that is load-bearing rather
+ * than tidiness.
  */
 export function probeVideo(file: File): Promise<VideoInfo> {
   return new Promise((resolve, reject) => {
@@ -38,26 +72,51 @@ export function probeVideo(file: File): Promise<VideoInfo> {
     const video = document.createElement('video');
     video.preload = 'metadata';
 
-    video.onloadedmetadata = () => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(PROBE_FAILED_MESSAGE));
+    }, PROBE_TIMEOUT_MS);
+
+    /**
+     * Runs on every exit, including the timeout, which would otherwise leak
+     * both the object URL and an element still holding a decode pipeline open.
+     * Clearing src and calling load() is what actually makes the element let go
+     * of the source — dropping the reference alone leaves a media element the
+     * browser is still working on. Nulling the handlers first means load()
+     * cannot re-enter onerror and settle an already-settled promise.
+     */
+    function cleanup() {
+      clearTimeout(timer);
+      video.onloadedmetadata = null;
+      video.onerror = null;
       URL.revokeObjectURL(url);
+      video.removeAttribute('src');
+      video.load();
+    }
+
+    video.onloadedmetadata = () => {
+      // Read before cleanup: load() resets the element and zeroes these.
       const duration = video.duration;
+      // videoWidth is the display size, already accounting for any
+      // rotation metadata a phone recording carries.
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      cleanup();
       // 30fps is a progress-bar estimate only, not a claim about the video's
       // true frame rate. The real frame count is not knowable without demuxing.
       // Task 6 will clamp progress to 1 precisely because this estimate can be
       // wrong for 60fps or higher-rate videos.
       resolve({
-        // videoWidth is the display size, already accounting for any
-        // rotation metadata a phone recording carries.
-        width: video.videoWidth,
-        height: video.videoHeight,
+        width,
+        height,
         duration,
         frameCount: estimateFrameCount(duration, 30),
       });
     };
 
     video.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Could not read this video. It may be corrupt or use an unsupported codec.'));
+      cleanup();
+      reject(new Error(PROBE_FAILED_MESSAGE));
     };
 
     video.src = url;

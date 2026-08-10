@@ -340,6 +340,15 @@ const ScreenshotFramer = ({
    * Detection is what assigns the device, and it runs concurrently with the
    * user clicking Download. Polling the ref is enough here: detection always
    * terminates, either with a frame or as 'unmatched'.
+   *
+   * That termination guarantee is real but it is NOT local — it is bought by
+   * every detection path being bounded. decodeFile settles on its own, and
+   * probeVideo is bounded by PROBE_TIMEOUT_MS precisely because a <video>
+   * element that stalls fires no event at all. Adding a deadline here as well
+   * would be a second, weaker guard over the same property: it could only give
+   * up and export an item whose device is still unknown, silently dropping it
+   * from the archive the button already counted. Anything that could hang this
+   * loop is a detection bug, and it belongs where detection is.
    */
   const waitForDetection = useCallback(async (ids: Set<string>) => {
     const stillDetecting = () =>
@@ -493,7 +502,14 @@ const ScreenshotFramer = ({
       // queue owns its URL, so this one is neither created nor revoked here.
       // Re-rendering instead would hand decodeFile a video file and throw.
       if (isVideoFile(item.file)) {
-        if (!item.videoUrl) return;
+        // Unreachable today — 'done' and a video implies videoUrl was set by
+        // the encode. Kept as a message rather than a bare return because a
+        // button that does nothing at all is indistinguishable from a bug, and
+        // this is the branch that would be wrong if that invariant ever slips.
+        if (!item.videoUrl) {
+          toast.error('That video has not finished encoding');
+          return;
+        }
         link.href = item.videoUrl;
         link.download = `${name}.mp4`;
         document.body.appendChild(link);
