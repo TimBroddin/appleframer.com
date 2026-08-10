@@ -71,8 +71,11 @@ const Card = memo(function Card({
         }`}
         style={backgroundColor ? { background: backgroundColor } : undefined}
       >
+        {/* pointer-events-none: this indicator sits above the stretched select
+            button, so without it a click on the visible checkbox hits an inert
+            span and never selects the card. */}
         <span
-          className={`absolute left-1.5 top-1.5 z-10 flex h-[17px] w-[17px] items-center justify-center rounded-md ${
+          className={`pointer-events-none absolute left-1.5 top-1.5 z-10 flex h-[17px] w-[17px] items-center justify-center rounded-md ${
             selected
               ? 'bg-accent text-white'
               : 'border-[1.5px] border-hairline bg-surface'

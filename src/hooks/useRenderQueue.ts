@@ -31,6 +31,12 @@ export function useRenderQueue(backgroundColor: string | null) {
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   /**
+   * Which item `abortRef` belongs to. Aborting is only safe when that same item
+   * is being re-queued — otherwise the in-flight render is cancelled and never
+   * restarted, stranding it in 'rendering' forever.
+   */
+  const renderingIdRef = useRef<string | null>(null);
+  /**
    * Bitmaps decoded during detection, waiting to be consumed by the render.
    * Detection already decodes every file to read its dimensions; reusing that
    * result halves the decode work, which dominates a large batch. Entries are
@@ -61,6 +67,7 @@ export function useRenderQueue(backgroundColor: string | null) {
 
         const controller = new AbortController();
         abortRef.current = controller;
+        renderingIdRef.current = next.id;
         patchItem(next.id, { status: 'rendering' });
 
         // Reuse detection's bitmap on the first render of an item; a device
@@ -94,6 +101,7 @@ export function useRenderQueue(backgroundColor: string | null) {
           });
         } finally {
           closeBitmap(cached);
+          if (renderingIdRef.current === next.id) renderingIdRef.current = null;
         }
       }
     } finally {
@@ -115,6 +123,8 @@ export function useRenderQueue(backgroundColor: string | null) {
     backgroundRef.current = backgroundColor;
     if (previous === backgroundColor) return;
 
+    // Safe to abort unconditionally here: every item with a frame is re-queued
+    // below, including whichever one was mid-render.
     abortRef.current?.abort();
     setItems((prev) =>
       prev.map((item) => {
@@ -163,7 +173,18 @@ export function useRenderQueue(backgroundColor: string | null) {
   /** Reassigns the device for a set of items and re-queues them. */
   const setFrameFor = useCallback((ids: string[], frame: DeviceFrame) => {
     const idSet = new Set(ids);
-    abortRef.current?.abort();
+
+    // Only abort when the in-flight render is itself being re-queued. Aborting
+    // unconditionally cancels an unrelated item that nothing then restarts,
+    // leaving it stuck in 'rendering'.
+    const active = renderingIdRef.current;
+    const activeItem = active
+      ? itemsRef.current.find((item) => item.id === active)
+      : undefined;
+    if (activeItem && idSet.has(activeItem.id) && activeItem.frame?.id !== frame.id) {
+      abortRef.current?.abort();
+    }
+
     setItems((prev) =>
       prev.map((item) => {
         if (!idSet.has(item.id) || item.frame?.id === frame.id) return item;
