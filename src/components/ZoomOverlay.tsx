@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { QueueItem, frameLabelDetailed } from '../lib/queue';
+import { QueueItem, frameLabelDetailed, isVideoFile } from '../lib/queue';
 import { renderFrameToBlob } from '../lib/renderFrame';
 
 interface ZoomOverlayProps {
@@ -62,6 +62,10 @@ const ZoomOverlay = ({
 
   useEffect(() => {
     if (!item.frame) return;
+    // A video has no full-resolution still to render: decodeFile would be
+    // handed an MP4 and reject. Its previewUrl — the first composited frame —
+    // is already the best still there is, so show that.
+    if (isVideoFile(item.file)) return;
     let cancelled = false;
     let url: string | null = null;
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
-import { QueueItem, frameLabelDetailed } from '../lib/queue';
+import { QueueItem, frameLabelDetailed, isVideoFile } from '../lib/queue';
 import { renderFramePreview } from '../lib/renderFrame';
 import ZoomOverlay from './ZoomOverlay';
 
@@ -64,6 +64,11 @@ const SinglePreview = ({
   // shows immediately and is swapped out when this lands.
   useEffect(() => {
     if (!item?.frame || item.status !== 'done') return;
+    // A video's preview is the first composited frame the encode already
+    // produced. Re-rendering it here would hand decodeFile an MP4, which
+    // createImageBitmap rejects — caught below, but only after wasting a
+    // full-resolution render's worth of work on every selection change.
+    if (isVideoFile(item.file)) return;
     let cancelled = false;
 
     void renderFramePreview(item.file, item.frame, {
@@ -146,7 +151,12 @@ const SinglePreview = ({
           )}
           <span>
             {item.file.name} · {frameLabelDetailed(item.frame)}
-            {item.status !== 'done' && ` · ${item.status}`}
+            {/* An encode runs for minutes, so the bare word "encoding" would
+                sit there looking stuck. The percentage is the only signal that
+                anything is still happening. */}
+            {item.status === 'encoding'
+              ? ` · encoding ${Math.round((item.video?.progress ?? 0) * 100)}%`
+              : item.status !== 'done' && ` · ${item.status}`}
           </span>
         </div>
         <button

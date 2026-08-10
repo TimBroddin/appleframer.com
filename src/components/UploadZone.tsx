@@ -102,7 +102,9 @@ const UploadZone = ({ onFilesSelected }: UploadZoneProps) => {
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*"
+          // Videos are framed too, so an image-only filter would let them be
+          // dropped but not chosen through the picker.
+          accept="image/*,video/*"
           className="hidden"
           onChange={handleFileInputChange}
         />

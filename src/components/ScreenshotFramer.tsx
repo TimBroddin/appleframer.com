@@ -7,9 +7,13 @@ import {
   displayOrder,
   findFrameByScreenshotSize,
   frameLabel,
+  isFramableFile,
+  isVideoFile,
   QueueItem,
 } from '../lib/queue';
 import { decodeFile, renderFrameToBlob } from '../lib/renderFrame';
+import { probeVideo } from '../lib/renderVideo';
+import { VIDEO_UNSUPPORTED_MESSAGE } from '../lib/videoSupport';
 import {
   buildFilename,
   buildUniqueFilenames,
@@ -56,6 +60,18 @@ const ScreenshotFramer = ({
   const addMoreInputRef = useRef<HTMLInputElement>(null);
   const lastClickedIdRef = useRef<string | null>(null);
 
+  /**
+   * A video whose audio could not be carried into the export.
+   *
+   * Surfaced rather than swallowed: a screen recording's narration disappearing
+   * without a word is the data loss renderVideoToBlob reports this in order to
+   * prevent. A warning rather than an error, because the framed video itself is
+   * fine and still worth having.
+   */
+  const handleAudioDropped = useCallback((item: QueueItem, reason: Error) => {
+    toast.warning(`${item.file.name}: ${reason.message}`);
+  }, []);
+
   const {
     items,
     addFiles,
@@ -65,7 +81,7 @@ const ScreenshotFramer = ({
     doneCount,
     renderableCount,
     isRendering,
-  } = useRenderQueue(backgroundColor);
+  } = useRenderQueue(backgroundColor, handleAudioDropped);
 
   useEffect(() => {
     localStorage.setItem('backgroundColor', backgroundColor ?? 'transparent');
@@ -97,9 +113,9 @@ const ScreenshotFramer = ({
 
   const handleFilesSelected = useCallback(
     async (files: File[]) => {
-      const imageFiles = files.filter((file) => file.type.startsWith('image/'));
-      if (imageFiles.length === 0) {
-        toast.error('No image files found in that selection');
+      const usableFiles = files.filter(isFramableFile);
+      if (usableFiles.length === 0) {
+        toast.error('No image or video files found in that selection');
         return;
       }
       if (frames.length === 0) return;
@@ -107,8 +123,21 @@ const ScreenshotFramer = ({
       // Show the cards immediately, then detect. Detection has to decode each
       // image, which is slow for large screenshots, so waiting for the whole
       // batch before rendering anything left the drop target on screen.
-      const added = addFiles(imageFiles);
+      const added = addFiles(usableFiles);
       setSelectedIds(new Set(added.map((item) => item.id)));
+
+      // A video with no WebCodecs was refused at the door and is already in
+      // 'error'; resolving detection for it would be answering a question the
+      // queue has stopped asking.
+      const pending = added.filter((item) => item.status === 'detecting');
+      const refused = added.length - pending.length;
+      if (refused > 0) {
+        toast.error(
+          refused === 1
+            ? VIDEO_UNSUPPORTED_MESSAGE
+            : `${refused} videos were skipped. ${VIDEO_UNSUPPORTED_MESSAGE}`
+        );
+      }
 
       // Decoding every file at once spikes memory and slows each decode down.
       const CONCURRENCY = 4;
@@ -120,9 +149,37 @@ const ScreenshotFramer = ({
       const worker = async () => {
         for (;;) {
           const index = cursor++;
-          if (index >= added.length) return;
-          const entry = added[index];
+          if (index >= pending.length) return;
+          const entry = pending[index];
           try {
+            // A video's dimensions come from its metadata rather than a decode,
+            // then feed the SAME size matching — an unmatched video lands in
+            // 'unmatched' like an unmatched screenshot, and the user picks a
+            // device in the inspector.
+            //
+            // Probing shares the image worker pool rather than running
+            // serially: probeVideo only reads metadata through a <video>
+            // element, so unlike a decode it holds no full-size bitmap, and
+            // four of them in flight cost roughly nothing. Serialising them
+            // would instead stall the whole pool behind one slow file.
+            if (isVideoFile(entry.file)) {
+              const info = await probeVideo(entry.file);
+              const frame = findFrameByScreenshotSize(frames, info.width, info.height);
+              // No bitmap: nothing was decoded, so there is nothing to hand
+              // over and nothing for the queue to close.
+              resolveDetection(entry.id, frame, undefined, {
+                duration: info.duration,
+                frameCount: info.frameCount,
+              });
+              if (frame) {
+                matched++;
+                devices.add(frameLabel(frame));
+              } else {
+                unmatchedNames.push(entry.file.name);
+              }
+              continue;
+            }
+
             // The bitmap is handed to the queue rather than discarded, so the
             // render does not decode the same file a second time.
             const source = await decodeFile(entry.file);
@@ -142,7 +199,7 @@ const ScreenshotFramer = ({
       };
 
       await Promise.all(
-        Array.from({ length: Math.min(CONCURRENCY, added.length) }, worker)
+        Array.from({ length: Math.min(CONCURRENCY, pending.length) }, worker)
       );
 
       if (matched > 0) {
@@ -341,12 +398,41 @@ const ScreenshotFramer = ({
 
         // Render at full resolution here rather than on upload. Sequentially,
         // because each render is main-thread canvas work.
+        let packed = 0;
+        const unfinished: string[] = [];
         for (let index = 0; index < ready.length; index++) {
           const item = ready[index];
+          // A video cannot be re-rendered on demand the way a still can — the
+          // encode is the expensive step and it already ran. Take the finished
+          // MP4 rather than handing decodeFile a video file, which rejects and
+          // would fail the WHOLE archive over one item.
+          if (isVideoFile(item.file)) {
+            if (!item.videoUrl) {
+              unfinished.push(item.file.name);
+              continue;
+            }
+            const encoded = await fetch(item.videoUrl).then((res) => res.blob());
+            zip.file(`${names[index]}.mp4`, encoded);
+            packed++;
+            continue;
+          }
           const blob = await renderFrameToBlob(item.file, item.frame!, {
             backgroundColor,
           });
           zip.file(`${names[index]}.png`, blob);
+          packed++;
+        }
+
+        if (unfinished.length > 0) {
+          toast.warning(
+            unfinished.length === 1
+              ? `${unfinished[0]} is still encoding and was left out`
+              : `${unfinished.length} videos were still encoding and were left out`
+          );
+        }
+        if (packed === 0) {
+          toast.error('Nothing finished rendering yet');
+          return;
         }
 
         const content = await zip.generateAsync({ type: 'blob' });
@@ -358,7 +444,7 @@ const ScreenshotFramer = ({
         link.click();
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        toast.success(`Downloaded ${ready.length} image${ready.length === 1 ? '' : 's'}`);
+        toast.success(`Downloaded ${packed} file${packed === 1 ? '' : 's'}`);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to create the zip');
       } finally {
@@ -372,6 +458,12 @@ const ScreenshotFramer = ({
     const item = selectedItems[0];
     if (!item?.frame || item.status !== 'done') {
       toast.error('That image has not finished rendering');
+      return;
+    }
+    // The clipboard takes an image/png; there is no still to write for a video,
+    // and renderFrameToBlob would reject on the file anyway.
+    if (isVideoFile(item.file)) {
+      toast.error('Videos cannot be copied to the clipboard — download it instead');
       return;
     }
     try {
@@ -389,16 +481,31 @@ const ScreenshotFramer = ({
     async (item: QueueItem) => {
       if (!item.frame || item.status !== 'done') return;
       const index = items.findIndex((entry) => entry.id === item.id);
-      const blob = await renderFrameToBlob(item.file, item.frame, { backgroundColor });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${buildFilename(
+      const name = buildFilename(
         tokens,
         item.file.name,
         item.frame,
         Math.max(index, 0)
-      )}.png`;
+      );
+
+      const link = document.createElement('a');
+      // The encoded MP4 already exists and is what the user is looking at; the
+      // queue owns its URL, so this one is neither created nor revoked here.
+      // Re-rendering instead would hand decodeFile a video file and throw.
+      if (isVideoFile(item.file)) {
+        if (!item.videoUrl) return;
+        link.href = item.videoUrl;
+        link.download = `${name}.mp4`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+
+      const blob = await renderFrameToBlob(item.file, item.frame, { backgroundColor });
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.download = `${name}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -491,7 +598,9 @@ const ScreenshotFramer = ({
         ref={addMoreInputRef}
         type="file"
         multiple
-        accept="image/*"
+        // Videos are framed too, so an image-only filter would let them be
+        // dropped but not chosen through the picker.
+        accept="image/*,video/*"
         className="hidden"
         onChange={(event) => {
           if (event.target.files?.length) {

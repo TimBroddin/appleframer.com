@@ -55,7 +55,17 @@ const Card = memo(function Card({
   // so a card is never empty while the queue works through the batch.
   const src = item.previewUrl ?? item.sourceUrl;
 
+  // Zooming needs a still to show, which a finished video has too: its first
+  // composited frame is stored as previewUrl. Gating on previewUrl rather than
+  // on the file type is what lets the overlay stay unaware of video entirely.
   const canZoom = item.status === 'done' && Boolean(item.previewUrl);
+
+  // A percentage is only meaningful while encoding; every other state has no
+  // fraction to report and reads better as the bare word.
+  const statusText =
+    item.status === 'encoding'
+      ? `encoding ${Math.round((item.video?.progress ?? 0) * 100)}%`
+      : STATUS_TEXT[item.status];
 
   return (
     // A div rather than a button: the zoom control is itself a button, and
@@ -94,9 +104,29 @@ const Card = memo(function Card({
           }`}
         />
 
+        {/* 'encoding' is in-progress too, and it is the state that lasts
+            minutes rather than milliseconds — omitting it left a video card
+            showing nothing at all for the entire encode. An encode reports real
+            progress, so it gets a determinate bar; a still render finishes too
+            fast for a fraction to mean anything and keeps the pulse. */}
         {item.status === 'rendering' && (
           <span className="absolute inset-x-2.5 bottom-2 h-[5px] overflow-hidden rounded-full bg-hairline">
             <span className="block h-full w-2/5 animate-af-pulse bg-accent" />
+          </span>
+        )}
+        {item.status === 'encoding' && (
+          <span
+            className="absolute inset-x-2.5 bottom-2 h-[5px] overflow-hidden rounded-full bg-hairline"
+            role="progressbar"
+            aria-label={`Encoding ${item.file.name}`}
+            aria-valuenow={Math.round((item.video?.progress ?? 0) * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <span
+              className="block h-full bg-accent transition-[width] duration-200"
+              style={{ width: `${Math.round((item.video?.progress ?? 0) * 100)}%` }}
+            />
           </span>
         )}
       </div>
@@ -108,9 +138,7 @@ const Card = memo(function Card({
         <div className={`mt-0.5 truncate font-mono text-2xs ${STATUS_CLASS[item.status]}`}>
           {/* Without a frame there is no device name to pair with the status,
               so show the status alone rather than "Detecting… · detecting…". */}
-          {item.frame
-            ? `${frameLabel(item.frame)} · ${STATUS_TEXT[item.status]}`
-            : STATUS_TEXT[item.status]}
+          {item.frame ? `${frameLabel(item.frame)} · ${statusText}` : statusText}
         </div>
       </div>
 

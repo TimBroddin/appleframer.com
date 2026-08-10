@@ -61,6 +61,18 @@ export function isVideoFile(file: File): boolean {
   return VIDEO_EXTENSIONS.some((ext) => name.endsWith(ext));
 }
 
+/**
+ * Whether the queue can do anything with a dropped file.
+ *
+ * A drop carries whatever the user selected — .DS_Store, a PDF, a folder's
+ * worth of junk — so the set has to be narrowed before anything is added.
+ * Videos pass because they are framed too; filtering to `image/*` here is what
+ * used to make a dropped screen recording disappear without a word.
+ */
+export function isFramableFile(file: File): boolean {
+  return file.type.startsWith('image/') || isVideoFile(file);
+}
+
 /** Matching tolerance in pixels for auto-detecting a device from screenshot size. */
 const TOLERANCE = 2;
 

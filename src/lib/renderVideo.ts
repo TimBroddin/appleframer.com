@@ -718,9 +718,23 @@ export async function renderVideoToBlob(
      * video. Never called for a source that had no audio to begin with.
      */
     onAudioDropped?: (reason: Error) => void;
+    /**
+     * The first composited frame as a PNG data URL, handed over as soon as it
+     * exists so a card can show something during a minute-long encode.
+     *
+     * A data URL rather than a VideoFrame or a canvas: this crosses into React
+     * state, where anything holding GPU memory would need a lifetime the queue
+     * has no way to enforce, and anything referencing the shared output canvas
+     * would be overwritten by the very next frame.
+     */
+    onFirstFrame?: (dataUrl: string) => void;
   } = {}
 ): Promise<Blob> {
   const { backgroundColor = null, signal, onProgress, onAudioDropped } = options;
+  // Cleared after it fires, so "first" is decided by this loop rather than by
+  // how the encoder's asynchronous output callback happens to be paced against
+  // it — `encoded` increments on the codec's own task and is still 0 here.
+  let onFirstFrame = options.onFirstFrame;
   const info = await probeVideo(file);
   await assertVideoSupported();
 
@@ -902,6 +916,21 @@ export async function renderVideoToBlob(
           encoder!.encode(composited);
         } finally {
           composited.close();
+        }
+
+        // The first composite doubles as the item's still preview, so a card
+        // has something framed to show through a minute-long encode instead of
+        // the raw recording. Read from outputCanvas because the next iteration
+        // clears and overwrites it, and AFTER encode() so a frame the encoder
+        // rejects never becomes the preview for a video that will not finish.
+        //
+        // toDataURL is synchronous, so this cannot interleave with the frame
+        // loop, the frame lifetimes above, or the encoder backpressure below —
+        // it observes the pipeline without participating in it.
+        if (onFirstFrame) {
+          const emit = onFirstFrame;
+          onFirstFrame = undefined;
+          emit(outputCanvas.toDataURL('image/png'));
         }
       } finally {
         // VideoFrame holds GPU memory the GC does not reclaim. A missed close

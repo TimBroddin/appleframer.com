@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { frameLabel, frameLabelDetailed, isVideoFile } from './queue';
+import { frameLabel, frameLabelDetailed, isFramableFile, isVideoFile } from './queue';
 import { DeviceFrame } from '../hooks/useFrames';
 
 const make = (over: Partial<DeviceFrame>): DeviceFrame => ({
@@ -75,4 +75,21 @@ test('falls back to the extension when the MIME type is missing', () => {
   expect(isVideoFile(fileOf('demo.mp4', ''))).toBe(true);
   expect(isVideoFile(fileOf('demo.MOV', ''))).toBe(true);
   expect(isVideoFile(fileOf('shot.png', ''))).toBe(false);
+});
+
+test('a dropped video is accepted, not filtered out with the junk', () => {
+  // The regression this guards: filtering a drop to image/* silently discarded
+  // every screen recording before it reached the queue.
+  expect(isFramableFile(fileOf('demo.mp4', 'video/mp4'))).toBe(true);
+  expect(isFramableFile(fileOf('demo.mov', 'video/quicktime'))).toBe(true);
+  // Including the empty-type case, which is how some tools hand over a
+  // recording and which a MIME-only filter would reject.
+  expect(isFramableFile(fileOf('demo.mp4', ''))).toBe(true);
+});
+
+test('images are accepted and everything else is refused', () => {
+  expect(isFramableFile(fileOf('shot.png', 'image/png'))).toBe(true);
+  expect(isFramableFile(fileOf('shot.heic', 'image/heic'))).toBe(true);
+  expect(isFramableFile(fileOf('notes.pdf', 'application/pdf'))).toBe(false);
+  expect(isFramableFile(fileOf('.DS_Store', ''))).toBe(false);
 });
