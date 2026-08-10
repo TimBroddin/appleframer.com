@@ -24,6 +24,7 @@ const isLiteral = (kind: TokenKind) => kind === 'separator' || kind === 'text';
  */
 const NamingComposer = ({ tokens, onChange, preview }: NamingComposerProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [literal, setLiteral] = useState('');
 
   const menuRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -181,6 +182,38 @@ const NamingComposer = ({ tokens, onChange, preview }: NamingComposerProps) => {
                     </button>
                   ))}
                 </div>
+
+                {/* Without this the default "framed" prefix is unrecoverable
+                    once removed: the token list persists immediately, so the
+                    only way back was clearing localStorage. */}
+                <div className="mt-1 border-t border-hairline px-1.5 pb-1 pt-1.5 font-mono text-2xs uppercase tracking-[0.12em] text-ink-faint">
+                  text
+                </div>
+                <form
+                  className="flex gap-1 px-0.5"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const value = literal.trim();
+                    if (!value) return;
+                    addToken({ kind: 'text', value });
+                    setLiteral('');
+                  }}
+                >
+                  <input
+                    value={literal}
+                    onChange={(event) => setLiteral(event.target.value)}
+                    placeholder="e.g. framed"
+                    aria-label="Custom text"
+                    className="w-full min-w-0 rounded border border-hairline bg-transparent px-1.5 py-1 font-mono text-xs-plus text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!literal.trim()}
+                    className="flex-none rounded border border-hairline px-2 font-mono text-xs-plus text-ink-soft hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    add
+                  </button>
+                </form>
               </div>,
               document.body
             )}

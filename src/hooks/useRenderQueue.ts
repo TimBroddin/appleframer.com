@@ -46,10 +46,30 @@ export function useRenderQueue(backgroundColor: string | null) {
 
   itemsRef.current = items;
 
-  const patchItem = useCallback((id: string, patch: Partial<QueueItem>) => {
-    // Previews are data URLs, which the GC reclaims — no revocation needed.
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
-  }, []);
+  /**
+   * Every mutation goes through here so itemsRef tracks the latest list
+   * synchronously. Detection callbacks resolve between renders and need to see
+   * removals and manual frame changes that happened moments earlier; reading a
+   * ref that only updates on render would miss them.
+   */
+  const updateItems = useCallback(
+    (updater: (prev: QueueItem[]) => QueueItem[]) => {
+      const next = updater(itemsRef.current);
+      itemsRef.current = next;
+      setItems(next);
+    },
+    []
+  );
+
+  const patchItem = useCallback(
+    (id: string, patch: Partial<QueueItem>) => {
+      // Previews are data URLs, which the GC reclaims — no revocation needed.
+      updateItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
+      );
+    },
+    [updateItems]
+  );
 
   const drain = useCallback(async () => {
     if (runningRef.current) return;
@@ -126,7 +146,7 @@ export function useRenderQueue(backgroundColor: string | null) {
     // Safe to abort unconditionally here: every item with a frame is re-queued
     // below, including whichever one was mid-render.
     abortRef.current?.abort();
-    setItems((prev) =>
+    updateItems((prev) =>
       prev.map((item) => {
         // Items still detecting, or with no matching device, have nothing to
         // re-render — forcing them to 'queued' would strand the progress bar.
@@ -134,7 +154,7 @@ export function useRenderQueue(backgroundColor: string | null) {
         return { ...item, status: 'queued', previewUrl: undefined, error: undefined };
       })
     );
-  }, [backgroundColor]);
+  }, [backgroundColor, updateItems]);
 
   /**
    * Adds files as 'detecting' straight away so the sheet appears on the first
@@ -142,23 +162,38 @@ export function useRenderQueue(backgroundColor: string | null) {
    * screenshots — waiting for all of them before showing anything left the user
    * staring at the empty drop target.
    */
-  const addFiles = useCallback((files: File[]) => {
-    const added = files.map((file) => ({
-      id: createItemId(),
-      file,
-      status: 'detecting' as const,
-      sourceUrl: URL.createObjectURL(file),
-    }));
-    setItems((prev) => [...prev, ...added]);
-    return added;
-  }, []);
+  const addFiles = useCallback(
+    (files: File[]) => {
+      const added = files.map((file) => ({
+        id: createItemId(),
+        file,
+        status: 'detecting' as const,
+        sourceUrl: URL.createObjectURL(file),
+      }));
+      updateItems((prev) => [...prev, ...added]);
+      return added;
+    },
+    [updateItems]
+  );
 
   /**
    * Records the outcome of detection for one item, handing over the bitmap it
    * decoded so the render does not decode the same file again.
+   *
+   * Detection is asynchronous, so by the time it finishes the item may have
+   * been removed, or the user may have picked a device by hand. In both cases
+   * the result is stale: applying it would resurrect a removed item's bitmap
+   * (leaking its decoded pixels) or silently replace the manual choice with
+   * the detected one.
    */
   const resolveDetection = useCallback(
     (id: string, frame: DeviceFrame | undefined, source?: ImageSource) => {
+      const current = itemsRef.current.find((item) => item.id === id);
+      if (!current || current.status !== 'detecting') {
+        closeBitmap(source);
+        return;
+      }
+
       if (frame && source) {
         bitmapsRef.current.set(id, source);
       } else {
@@ -185,28 +220,31 @@ export function useRenderQueue(backgroundColor: string | null) {
       abortRef.current?.abort();
     }
 
-    setItems((prev) =>
+    updateItems((prev) =>
       prev.map((item) => {
         if (!idSet.has(item.id) || item.frame?.id === frame.id) return item;
         return { ...item, frame, status: 'queued', previewUrl: undefined, error: undefined };
       })
     );
-  }, []);
+  }, [updateItems]);
 
-  const removeItems = useCallback((ids: string[]) => {
-    const idSet = new Set(ids);
-    ids.forEach((id) => {
-      closeBitmap(bitmapsRef.current.get(id));
-      bitmapsRef.current.delete(id);
-    });
-    setItems((prev) =>
-      prev.filter((item) => {
-        if (!idSet.has(item.id)) return true;
-        URL.revokeObjectURL(item.sourceUrl);
-        return false;
-      })
-    );
-  }, []);
+  const removeItems = useCallback(
+    (ids: string[]) => {
+      const idSet = new Set(ids);
+      ids.forEach((id) => {
+        closeBitmap(bitmapsRef.current.get(id));
+        bitmapsRef.current.delete(id);
+      });
+      updateItems((prev) =>
+        prev.filter((item) => {
+          if (!idSet.has(item.id)) return true;
+          URL.revokeObjectURL(item.sourceUrl);
+          return false;
+        })
+      );
+    },
+    [updateItems]
+  );
 
   // Revoke everything still outstanding on unmount.
   useEffect(() => {
