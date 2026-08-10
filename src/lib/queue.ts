@@ -79,6 +79,30 @@ export function frameLabelDetailed(frame: DeviceFrame | undefined): string {
 }
 
 /**
+ * Groups items by device, preserving first-appearance order both between
+ * groups and within them.
+ *
+ * The sheet and shift-range selection must agree on the order cards appear in,
+ * so both derive it from here rather than each computing its own.
+ */
+export function groupItemsByDevice(items: QueueItem[]): Array<[string, QueueItem[]]> {
+  const groups = new Map<string, QueueItem[]>();
+  items.forEach((item) => {
+    const key = frameLabel(item.frame);
+    const existing = groups.get(key);
+    if (existing) existing.push(item);
+    else groups.set(key, [item]);
+  });
+  return Array.from(groups.entries());
+}
+
+/** The order cards actually appear in, which grouping changes. */
+export function displayOrder(items: QueueItem[], groupByDevice: boolean): QueueItem[] {
+  if (!groupByDevice) return items;
+  return groupItemsByDevice(items).flatMap(([, groupItems]) => groupItems);
+}
+
+/**
  * Finds the equivalent frame with one facet changed, keeping the rest fixed.
  *
  * Switching size or colour may have no exact counterpart — an 11" iPad might

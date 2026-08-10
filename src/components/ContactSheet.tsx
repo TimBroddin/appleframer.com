@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Check, Maximize2, Plus } from 'lucide-react';
-import { QueueItem, frameLabel } from '../lib/queue';
+import { groupItemsByDevice, QueueItem, frameLabel } from '../lib/queue';
 
 interface ContactSheetProps {
   items: QueueItem[];
@@ -179,19 +179,13 @@ const ContactSheet = ({
     );
   }
 
-  // Preserve first-appearance order so grouping doesn't reshuffle unexpectedly.
-  const groups = new Map<string, QueueItem[]>();
-  items.forEach((item) => {
-    const key = frameLabel(item.frame);
-    const existing = groups.get(key);
-    if (existing) existing.push(item);
-    else groups.set(key, [item]);
-  });
+  // Shared with range selection so the two always agree on card order.
+  const groups = groupItemsByDevice(items);
 
   return (
     <div className="min-w-0 flex-1 overflow-y-auto p-5">
       <div className="flex flex-col gap-6">
-        {Array.from(groups.entries()).map(([label, groupItems]) => (
+        {groups.map(([label, groupItems]) => (
           <section key={label} className="flex flex-col gap-3">
             <h3 className="font-mono text-2xs uppercase tracking-[0.14em] text-ink-faint">
               {label} · {groupItems.length}

@@ -3,7 +3,12 @@ import { toast } from 'sonner';
 import JSZip from 'jszip';
 import { DeviceFrame } from '../hooks/useFrames';
 import { useRenderQueue } from '../hooks/useRenderQueue';
-import { findFrameByScreenshotSize, frameLabel, QueueItem } from '../lib/queue';
+import {
+  displayOrder,
+  findFrameByScreenshotSize,
+  frameLabel,
+  QueueItem,
+} from '../lib/queue';
 import { decodeFile, renderFrameToBlob } from '../lib/renderFrame';
 import {
   buildFilename,
@@ -189,10 +194,17 @@ const ScreenshotFramer = ({
   // memoised Card, and a new function each render would defeat the memo.
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  // Read through a ref for the same reason as items: keeping the handler
+  // identity stable is what lets the memoised cards skip re-rendering.
+  const groupByDeviceRef = useRef(groupByDevice);
+  groupByDeviceRef.current = groupByDevice;
 
   const handleToggleSelect = useCallback(
     (id: string, event: React.MouseEvent) => {
-      const current = itemsRef.current;
+      // Range selection has to follow the order cards are displayed in, which
+      // grouping changes. Slicing the raw array while grouped would select
+      // cards from other groups and skip ones lying between the endpoints.
+      const current = displayOrder(itemsRef.current, groupByDeviceRef.current);
       setSelectedIds((prev) => {
         // Shift extends from the last click; plain click replaces the selection,
         // which is what a contact sheet is expected to do.
