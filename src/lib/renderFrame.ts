@@ -126,12 +126,16 @@ export async function renderFrameToCanvas(
   const targetWidth = screenshotWidth || screenImg.width;
   const targetHeight = screenshotHeight || screenImg.height;
 
-  // Only inset when there's no mask — the mask already handles corner clipping.
-  const EDGE_INSET = maskImg ? 0 : 3;
-  const adjustedWidth = targetWidth - EDGE_INSET * 2;
-  const adjustedHeight = targetHeight - EDGE_INSET * 2;
-  const adjustedX = screenshotX + EDGE_INSET;
-  const adjustedY = screenshotY + EDGE_INSET;
+  // The screenshot fills the screen area exactly. A 3px inset used to guard
+  // against bleeding past rounded corners on maskless frames, but the
+  // destination-out pass below now does that properly using the frame's own
+  // alpha. On frames whose screen area is fully transparent — the iPad Pro 13,
+  // for one — the inset left a 3px hole ringing the screen that showed as a
+  // pale halo in the preview and baked into exports.
+  const adjustedWidth = targetWidth;
+  const adjustedHeight = targetHeight;
+  const adjustedX = screenshotX;
+  const adjustedY = screenshotY;
 
   if (maskImg) {
     tempCtx.clearRect(0, 0, canvas.width, canvas.height);
