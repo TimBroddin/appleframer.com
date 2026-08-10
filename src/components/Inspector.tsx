@@ -223,9 +223,17 @@ const Inspector = ({
             )}
 
             {colors.length > 0 && commonFrame && (
-              <div className="flex items-center justify-between rounded-lg border border-hairline px-3 py-2.5 text-[13px]">
-                <span className="text-ink-soft">Finish</span>
-                <span className="flex items-center gap-1.5">
+              // The selected finish is named rather than left to a tooltip:
+              // three unlabelled swatches do not read as a colour control, and
+              // "Cosmic Orange" is not guessable from an 18px circle.
+              <div className="flex flex-col gap-2 rounded-lg border border-hairline px-3 py-2.5">
+                <div className="flex items-baseline justify-between gap-2 text-[13px]">
+                  <span className="flex-none text-ink-soft">Finish</span>
+                  <span className="truncate font-semibold text-ink" title={commonFrame.color}>
+                    {commonFrame.color}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                   {colors.map((color) => {
                     const sibling = findSibling(frames, commonFrame, { color });
                     const active = commonFrame.color === color;
@@ -234,16 +242,20 @@ const Inspector = ({
                         key={color}
                         type="button"
                         title={color}
+                        aria-label={color}
+                        aria-pressed={active}
                         disabled={!sibling}
                         onClick={() => sibling && onSetFrame(sibling)}
                         style={{ background: colorSwatch(color) }}
-                        className={`h-[18px] w-[18px] rounded-full transition-shadow ${
-                          active ? 'ring-2 ring-accent ring-offset-1 ring-offset-surface' : ''
+                        className={`h-[22px] w-[22px] rounded-full border border-black/10 transition-shadow ${
+                          active
+                            ? 'ring-2 ring-accent ring-offset-2 ring-offset-surface'
+                            : 'hover:ring-2 hover:ring-hairline hover:ring-offset-2 hover:ring-offset-surface'
                         } ${sibling ? '' : 'cursor-not-allowed opacity-40'}`}
                       />
                     );
                   })}
-                </span>
+                </div>
               </div>
             )}
 
@@ -361,14 +373,43 @@ const Inspector = ({
 };
 
 /** Maps Apple finish names onto approximate swatch colours. */
+/**
+ * Approximate swatch colour for an Apple finish name.
+ *
+ * Exact names come first: several finishes share a word ("Mist Blue" vs "Sky
+ * Blue" vs "Deep Blue") and would otherwise collapse to one indistinguishable
+ * swatch. The keyword fallbacks below cover finishes added to Frames.json
+ * later.
+ */
+const FINISH_SWATCHES: Record<string, string> = {
+  // iPhone 17 Pro / Pro Max
+  'cosmic orange': '#c8622b',
+  'deep blue': '#3b4a6b',
+  silver: '#d5d3ce',
+  // iPhone 17
+  black: '#2a2a2c',
+  lavender: '#cdc3e0',
+  'mist blue': '#c2d3e0',
+  sage: '#c3cfbd',
+  white: '#f0eeea',
+  // iPhone Air
+  'cloud white': '#eae7e0',
+  'light gold': '#d8c095',
+  'sky blue': '#a8c4d9',
+  'space black': '#26262a',
+};
+
 function colorSwatch(color: string): string {
-  const key = color.toLowerCase();
-  if (key.includes('orange')) return '#c9622d';
-  if (key.includes('blue')) return '#3f4a72';
-  if (key.includes('silver')) return '#c9c3b6';
-  if (key.includes('black') || key.includes('space')) return '#23211f';
-  if (key.includes('white') || key.includes('starlight')) return '#e8e3da';
-  if (key.includes('gold')) return '#b99a67';
+  const key = color.toLowerCase().trim();
+  const exact = FINISH_SWATCHES[key];
+  if (exact) return exact;
+
+  if (key.includes('orange')) return '#c8622b';
+  if (key.includes('blue')) return '#3b4a6b';
+  if (key.includes('silver')) return '#d5d3ce';
+  if (key.includes('black') || key.includes('space')) return '#26262a';
+  if (key.includes('white') || key.includes('starlight')) return '#eae7e0';
+  if (key.includes('gold')) return '#d8c095';
   if (key.includes('titanium') || key.includes('natural')) return '#9d968a';
   return '#6d6862';
 }
