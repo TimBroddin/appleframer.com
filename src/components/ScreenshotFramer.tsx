@@ -262,27 +262,28 @@ const ScreenshotFramer = ({
     return buildFilename(tokens, sample.file.name, sample.frame, Math.max(index, 0));
   }, [tokens, selectedItems, items]);
 
-  /** Waits for a set of items to finish rendering before exporting them. */
-  const awaitRendered = useCallback(
-    (target: QueueItem[]): QueueItem[] => target.filter((item) => item.status === 'done'),
-    []
-  );
-
   const downloadZip = useCallback(
     async (target: QueueItem[], label: string) => {
-      const ready = awaitRendered(target);
+      // Export renders every image at full resolution regardless, so a queued
+      // or mid-render item is exportable as soon as it has a device. Filtering
+      // to 'done' used to silently drop images the button had already counted,
+      // producing an archive smaller than promised.
+      const ready = target.filter((item) => item.frame);
       if (ready.length === 0) {
-        toast.error('Nothing has finished rendering yet');
+        toast.error(
+          target.length > 0
+            ? 'None of those images matched a device'
+            : 'Nothing to download yet'
+        );
         return;
       }
-      // Unmatched images are reported separately at upload time, so only warn
-      // about ones that could still become available.
-      const pending = target.filter(
-        (item) => item.status !== 'done' && item.status !== 'unmatched'
-      ).length;
-      if (pending > 0) {
+
+      const skipped = target.length - ready.length;
+      if (skipped > 0) {
         toast.warning(
-          `${pending} image${pending === 1 ? ' is' : 's are'} still rendering and will be skipped`
+          `${skipped} image${skipped === 1 ? '' : 's'} had no matching device and ${
+            skipped === 1 ? 'was' : 'were'
+          } skipped`
         );
       }
 
@@ -320,7 +321,7 @@ const ScreenshotFramer = ({
         setIsDownloading(false);
       }
     },
-    [awaitRendered, tokens, backgroundColor]
+    [tokens, backgroundColor]
   );
 
   const handleCopyImage = useCallback(async () => {
@@ -402,7 +403,9 @@ const ScreenshotFramer = ({
         isRendering={isRendering}
       />
 
-      <div className="flex min-h-0 flex-1">
+      {/* Stacked below lg: the inspector is a fixed 316px, which squeezed the
+          sheet to ~59px on a 375px phone and made cards unusable. */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {view === 'sheet' ? (
           <ContactSheet
             items={items}

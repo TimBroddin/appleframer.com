@@ -148,7 +148,9 @@ const Inspector = ({
   return (
     // relative + z-10 gives the inspector its own stacking context so its
     // popovers paint above the contact sheet, which is a sibling flex child.
-    <aside className="relative z-10 flex w-[316px] flex-none flex-col border-l border-hairline bg-surface">
+    // Stacked full-width below lg, a fixed side column above it. Without this
+    // the 316px width squeezed the sheet to nothing on a phone.
+    <aside className="relative z-10 flex max-h-[55vh] w-full flex-none flex-col border-t border-hairline bg-surface lg:max-h-none lg:w-[316px] lg:border-l lg:border-t-0">
       <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto p-[18px] pb-2">
         <div className="rounded-lg border border-accent-edge bg-accent-wash px-3 py-2.5">
           <div className="font-mono text-2xs uppercase tracking-[0.12em] text-accent">
