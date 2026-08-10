@@ -101,6 +101,26 @@ test('mixed devices in one batch use their own frame values', () => {
   expect(names).toEqual(['iPhone', 'iPad']);
 });
 
+test('an explicit index survives exporting a filtered subset', () => {
+  // Exporting "selected only" must not renumber an image the rest of the UI
+  // shows as 03 down to 01.
+  const tokens: NameToken[] = [{ kind: 'index' }];
+  const names = buildUniqueFilenames(tokens, [
+    { name: 'c.png', frame, index: 2 },
+    { name: 'e.png', frame, index: 4 },
+  ]);
+  expect(names).toEqual(['03', '05']);
+});
+
+test('index falls back to position when not supplied', () => {
+  const tokens: NameToken[] = [{ kind: 'index' }];
+  const names = buildUniqueFilenames(tokens, [
+    { name: 'a.png', frame },
+    { name: 'b.png', frame },
+  ]);
+  expect(names).toEqual(['01', '02']);
+});
+
 test('deserialize falls back on malformed input', () => {
   expect(deserializeTokens(null)).toEqual(DEFAULT_TOKENS);
   expect(deserializeTokens('not json')).toEqual(DEFAULT_TOKENS);

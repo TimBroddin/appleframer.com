@@ -262,37 +262,66 @@ const ScreenshotFramer = ({
     return buildFilename(tokens, sample.file.name, sample.frame, Math.max(index, 0));
   }, [tokens, selectedItems, items]);
 
+  /**
+   * Resolves once none of the given items are still detecting.
+   *
+   * Detection is what assigns the device, and it runs concurrently with the
+   * user clicking Download. Polling the ref is enough here: detection always
+   * terminates, either with a frame or as 'unmatched'.
+   */
+  const waitForDetection = useCallback(async (ids: Set<string>) => {
+    const stillDetecting = () =>
+      itemsRef.current.some((item) => ids.has(item.id) && item.status === 'detecting');
+    while (stillDetecting()) {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+  }, []);
+
   const downloadZip = useCallback(
     async (target: QueueItem[], label: string) => {
-      // Export renders every image at full resolution regardless, so a queued
-      // or mid-render item is exportable as soon as it has a device. Filtering
-      // to 'done' used to silently drop images the button had already counted,
-      // producing an archive smaller than promised.
-      const ready = target.filter((item) => item.frame);
-      if (ready.length === 0) {
-        toast.error(
-          target.length > 0
-            ? 'None of those images matched a device'
-            : 'Nothing to download yet'
-        );
-        return;
-      }
-
-      const skipped = target.length - ready.length;
-      if (skipped > 0) {
-        toast.warning(
-          `${skipped} image${skipped === 1 ? '' : 's'} had no matching device and ${
-            skipped === 1 ? 'was' : 'were'
-          } skipped`
-        );
-      }
-
       setIsDownloading(true);
       try {
+        // Detection assigns the device, so an item still detecting has no frame
+        // and would be dropped from the archive the button already counted.
+        // Wait for it to settle, then re-read the items rather than using the
+        // snapshot taken before the await.
+        const targetIds = new Set(target.map((item) => item.id));
+        await waitForDetection(targetIds);
+
+        const settled = itemsRef.current.filter((item) => targetIds.has(item.id));
+
+        // Export re-renders at full resolution, so anything with a device is
+        // exportable regardless of where it sits in the render queue.
+        const ready = settled.filter((item) => item.frame);
+        if (ready.length === 0) {
+          toast.error(
+            settled.length > 0
+              ? 'None of those images matched a device'
+              : 'Nothing to download yet'
+          );
+          return;
+        }
+
+        const skipped = settled.length - ready.length;
+        if (skipped > 0) {
+          toast.warning(
+            `${skipped} image${skipped === 1 ? '' : 's'} had no matching device and ${
+              skipped === 1 ? 'was' : 'were'
+            } skipped`
+          );
+        }
+
         const zip = new JSZip();
+        // Number from each item's position in the full queue, so {index} matches
+        // the naming preview and the single-image download. Numbering the
+        // filtered subset would renumber an item shown as 03 down to 01.
         const names = buildUniqueFilenames(
           tokens,
-          ready.map((item) => ({ name: item.file.name, frame: item.frame }))
+          ready.map((item) => ({
+            name: item.file.name,
+            frame: item.frame,
+            index: itemsRef.current.findIndex((entry) => entry.id === item.id),
+          }))
         );
 
         // Render at full resolution here rather than on upload. Sequentially,
@@ -321,7 +350,7 @@ const ScreenshotFramer = ({
         setIsDownloading(false);
       }
     },
-    [tokens, backgroundColor]
+    [tokens, backgroundColor, waitForDetection]
   );
 
   const handleCopyImage = useCallback(async () => {

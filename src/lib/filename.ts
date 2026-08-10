@@ -121,11 +121,20 @@ export function buildFilename(
  */
 export function buildUniqueFilenames(
   tokens: NameToken[],
-  entries: Array<{ name: string; frame: DeviceFrame | undefined }>
+  entries: Array<{
+    name: string;
+    frame: DeviceFrame | undefined;
+    /**
+     * Position to use for the {index} token. Pass the item's index in the full
+     * queue when exporting a subset, otherwise an image shown as 03 elsewhere
+     * would be renumbered to 01 in the archive.
+     */
+    index?: number;
+  }>
 ): string[] {
   const used = new Set<string>();
-  return entries.map((entry, index) => {
-    const base = buildFilename(tokens, entry.name, entry.frame, index);
+  return entries.map((entry, position) => {
+    const base = buildFilename(tokens, entry.name, entry.frame, entry.index ?? position);
     // Step past any suffix that is itself already taken, so a batch holding
     // both "shot.png" twice and a literal "shot-2.png" still stays unique.
     let filename = base;
