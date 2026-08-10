@@ -1,598 +1,513 @@
-import { useEffect, useState } from "react";
-import { ImagePlus, Download, Trash2, Settings } from "lucide-react";
-import UploadZone from "./UploadZone";
-import FramePreview from "./FramePreview";
-import FrameSettings from "./FrameSettings";
-import { DeviceFrame, getFramePath } from "../hooks/useFrames";
-import { toast } from "sonner";
-import JSZip from "jszip";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import JSZip from 'jszip';
+import { DeviceFrame } from '../hooks/useFrames';
+import { useRenderQueue } from '../hooks/useRenderQueue';
+import {
+  displayOrder,
+  findFrameByScreenshotSize,
+  frameLabel,
+  QueueItem,
+} from '../lib/queue';
+import { decodeFile, renderFrameToBlob } from '../lib/renderFrame';
+import {
+  buildFilename,
+  buildUniqueFilenames,
+  deserializeTokens,
+  NameToken,
+  serializeTokens,
+} from '../lib/filename';
+import UploadZone from './UploadZone';
+import ContactSheet from './ContactSheet';
+import Inspector from './Inspector';
+import SelectionBar from './SelectionBar';
+import SinglePreview from './SinglePreview';
+import ZoomOverlay from './ZoomOverlay';
+import { ViewMode } from './Header';
 
 interface ScreenshotFramerProps {
   frames: DeviceFrame[];
   isLoading: boolean;
   error: string | null;
+  view: ViewMode;
+  onSummaryChange: (summary: string | undefined) => void;
+  onHasItemsChange: (hasItems: boolean) => void;
 }
 
 const ScreenshotFramer = ({
   frames,
   isLoading,
   error,
+  view,
+  onSummaryChange,
+  onHasItemsChange,
 }: ScreenshotFramerProps) => {
-  const TOLERANCE = 2;
-
-  const [images, setImages] = useState<File[]>([]);
-  const [selectedFrame, setSelectedFrame] = useState<DeviceFrame | undefined>(
-    undefined
-  );
-  const [showSettings, setShowSettings] = useState(false);
-  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(
-    null
-  );
-  const [filenamePattern, setFilenamePattern] = useState<string>(() => {
-    return localStorage.getItem('filenamePattern') || 'framed-{original}';
-  });
-  // null means a transparent background (the default)
   const [backgroundColor, setBackgroundColor] = useState<string | null>(() => {
     const saved = localStorage.getItem('backgroundColor');
     return !saved || saved === 'transparent' ? null : saved;
   });
+  const [tokens, setTokens] = useState<NameToken[]>(() =>
+    deserializeTokens(localStorage.getItem('nameTokens'))
+  );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [groupByDevice, setGroupByDevice] = useState(false);
+  const [zoomedId, setZoomedId] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const addMoreInputRef = useRef<HTMLInputElement>(null);
+  const lastClickedIdRef = useRef<string | null>(null);
 
-  // Save filename pattern to localStorage
-  useEffect(() => {
-    localStorage.setItem('filenamePattern', filenamePattern);
-  }, [filenamePattern]);
+  const {
+    items,
+    addFiles,
+    resolveDetection,
+    setFrameFor,
+    removeItems,
+    doneCount,
+    renderableCount,
+    isRendering,
+  } = useRenderQueue(backgroundColor);
 
-  // Save background color to localStorage
   useEffect(() => {
     localStorage.setItem('backgroundColor', backgroundColor ?? 'transparent');
   }, [backgroundColor]);
 
-  // Update selectedFrame when frames are loaded
   useEffect(() => {
-    if (frames.length > 0 && !selectedFrame) {
-      // Try to load last used device from localStorage
-      const lastDeviceId = localStorage.getItem('lastDeviceId');
-      if (lastDeviceId) {
-        const lastFrame = frames.find(f => f.id === lastDeviceId);
-        if (lastFrame) {
-          setSelectedFrame(lastFrame);
-          return;
-        }
-      }
-      setSelectedFrame(frames[0]);
-    }
-  }, [frames, selectedFrame]);
+    localStorage.setItem('nameTokens', serializeTokens(tokens));
+  }, [tokens]);
 
-  // Save selected frame to localStorage whenever it changes
+  // Keep the header in sync without it needing to know about the queue.
   useEffect(() => {
-    if (selectedFrame) {
-      localStorage.setItem('lastDeviceId', selectedFrame.id);
+    if (items.length === 0) {
+      onSummaryChange(undefined);
+      return;
     }
-  }, [selectedFrame]);
+    const deviceCount = new Set(
+      items.map((item) => item.frame?.id).filter(Boolean)
+    ).size;
+    onSummaryChange(
+      `${items.length} shot${items.length === 1 ? '' : 's'} · ${deviceCount} device${
+        deviceCount === 1 ? '' : 's'
+      }`
+    );
+  }, [items, onSummaryChange]);
 
-  const findFrameByScreenshotSize = (
-    frames: DeviceFrame[],
-    width: number,
-    height: number
-  ): DeviceFrame | undefined => {
-    const found = frames.find((frame: DeviceFrame) => {
-      const fw = frame.coordinates.screenshotWidth;
-      const fh = frame.coordinates.screenshotHeight;
-      return (
-        typeof fw === "number" &&
-        typeof fh === "number" &&
-        Math.abs(fw - width) <= TOLERANCE &&
-        Math.abs(fh - height) <= TOLERANCE
-      );
-    });
-    return found;
-  };
+  useEffect(() => {
+    onHasItemsChange(items.length > 0);
+  }, [items.length, onHasItemsChange]);
 
-  const handleFilesSelected = (files: File[]) => {
-    // Only accept image files
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    if (imageFiles.length > 0) {
-      const img = new window.Image();
-      img.onload = () => {
-        const detectedFrame = findFrameByScreenshotSize(
-          frames,
-          img.width,
-          img.height
-        );
-        if (detectedFrame) {
-          setSelectedFrame(detectedFrame);
-          toast.success(
-            `Auto-detected: ${detectedFrame.coordinates.name} (${img.width}x${img.height}px)`
-          );
-        } else {
-          toast.warning(
-            `No matching device found for size ${img.width}x${img.height}px`
-          );
-        }
-        setImages((prev) => {
-          const newImages = [...prev, ...imageFiles];
-          setSelectedImageIndex(newImages.length - 1);
-          return newImages;
-        });
-      };
-      img.src = URL.createObjectURL(imageFiles[0]);
-    } else {
-      setImages((prev) => {
-        const newImages = [...prev, ...imageFiles];
-        if (imageFiles.length > 0 && selectedImageIndex === null) {
-          setSelectedImageIndex(newImages.length - 1);
-        }
-        return newImages;
-      });
-    }
-  };
-
-  const handleRemoveImage = (index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
-    if (selectedImageIndex === index) {
-      setSelectedImageIndex(images.length > 1 ? 0 : null);
-    } else if (selectedImageIndex !== null && index < selectedImageIndex) {
-      setSelectedImageIndex(selectedImageIndex - 1);
-    }
-  };
-
-  const handleSelectImage = (index: number) => {
-    setSelectedImageIndex(index);
-  };
-
-  const toggleSettings = () => {
-    setShowSettings(!showSettings);
-  };
-
-  // Helper to render a framed image for a given File and frame, returns a PNG blob
-  const renderFramedImage = async (
-    image: File,
-    frame: DeviceFrame
-  ): Promise<Blob> => {
-    // Dynamically import FramePreview's draw logic
-    // We'll inline the logic here for simplicity
-    const loadImage = (src: string): Promise<HTMLImageElement> => {
-      return new Promise((resolve, reject) => {
-        const img = new window.Image();
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = src;
-      });
-    };
-    const imageUrl = URL.createObjectURL(image);
-    try {
-      const frameName = frame.coordinates.name;
-      const frameDir = getFramePath(frame);
-      const framePath = `/frames/${frameDir}/${frameName}.png`;
-      const maskPath = `/frames/${frameDir}/${frameName}_mask.png`;
-      const [screenImg, frameImg] = await Promise.all([
-        loadImage(imageUrl),
-        loadImage(framePath),
-      ]);
-      let maskImg: HTMLImageElement | null = null;
-      try {
-        maskImg = await loadImage(maskPath);
-      } catch {
-        // Mask doesn't exist, continue without it
+  const handleFilesSelected = useCallback(
+    async (files: File[]) => {
+      const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+      if (imageFiles.length === 0) {
+        toast.error('No image files found in that selection');
+        return;
       }
-      // Use original size for download
-      const scale = 1;
-      const canvas = document.createElement("canvas");
-      canvas.width = frameImg.width * scale;
-      canvas.height = frameImg.height * scale;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("No canvas context");
-      // Disable image smoothing to prevent bleeding in Safari
-      ctx.imageSmoothingEnabled = false;
+      if (frames.length === 0) return;
 
-      // Fill the background on the MAIN canvas only. The temp canvas below
-      // relies on transparency for the mask and the destination-out frame
-      // erase, so filling it there would defeat the corner clipping.
-      if (backgroundColor) {
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-      // Create a temporary canvas for the masked screenshot
-      const tempCanvas = document.createElement("canvas");
-      const tempCtx = tempCanvas.getContext("2d");
-      if (!tempCtx) throw new Error("No temp canvas context");
-      tempCanvas.width = canvas.width;
-      tempCanvas.height = canvas.height;
-      // Disable image smoothing after resize (setting width/height resets context state)
-      tempCtx.imageSmoothingEnabled = false;
-      const { x, y, screenshotWidth, screenshotHeight } = frame.coordinates;
-      const screenshotX = parseInt(x) * scale;
-      const screenshotY = parseInt(y) * scale;
-      // Use frame's specified dimensions to ensure exact fit
-      const targetWidth = (screenshotWidth || screenImg.width) * scale;
-      const targetHeight = (screenshotHeight || screenImg.height) * scale;
+      // Show the cards immediately, then detect. Detection has to decode each
+      // image, which is slow for large screenshots, so waiting for the whole
+      // batch before rendering anything left the drop target on screen.
+      const added = addFiles(imageFiles);
+      setSelectedIds(new Set(added.map((item) => item.id)));
 
-      // Only apply inset if there's NO mask (mask handles corner clipping)
-      const EDGE_INSET = maskImg ? 0 : 3 * scale;
-      const adjustedWidth = targetWidth - (EDGE_INSET * 2);
-      const adjustedHeight = targetHeight - (EDGE_INSET * 2);
-      const adjustedX = screenshotX + EDGE_INSET;
-      const adjustedY = screenshotY + EDGE_INSET;
-      if (maskImg) {
-        tempCtx.clearRect(0, 0, canvas.width, canvas.height);
-        const maskCanvas = document.createElement("canvas");
-        const maskCtx = maskCanvas.getContext("2d");
-        if (!maskCtx) throw new Error("No mask canvas context");
-        maskCanvas.width = adjustedWidth;
-        maskCanvas.height = adjustedHeight;
-        // Disable image smoothing after resize (setting width/height resets context state)
-        maskCtx.imageSmoothingEnabled = false;
-        maskCtx.drawImage(maskImg, 0, 0, maskCanvas.width, maskCanvas.height);
-        const maskData = maskCtx.getImageData(
-          0,
-          0,
-          maskCanvas.width,
-          maskCanvas.height
-        );
-        tempCtx.drawImage(
-          screenImg,
-          adjustedX,
-          adjustedY,
-          adjustedWidth,
-          adjustedHeight
-        );
-        const imageData = tempCtx.getImageData(
-          adjustedX,
-          adjustedY,
-          adjustedWidth,
-          adjustedHeight
-        );
-        for (let i = 0; i < maskData.data.length; i += 4) {
-          // If mask pixel is dark (below threshold) - handles (0,0,1) and similar near-black values
-          const r = maskData.data[i];
-          const g = maskData.data[i + 1];
-          const b = maskData.data[i + 2];
-          const threshold = 10; // Any pixel with all channels below 10 is considered "black"
-          if (r < threshold && g < threshold && b < threshold) {
-            imageData.data[i + 3] = 0;
+      // Decoding every file at once spikes memory and slows each decode down.
+      const CONCURRENCY = 4;
+      let cursor = 0;
+      let matched = 0;
+      const devices = new Set<string>();
+      const unmatchedNames: string[] = [];
+
+      const worker = async () => {
+        for (;;) {
+          const index = cursor++;
+          if (index >= added.length) return;
+          const entry = added[index];
+          try {
+            // The bitmap is handed to the queue rather than discarded, so the
+            // render does not decode the same file a second time.
+            const source = await decodeFile(entry.file);
+            const frame = findFrameByScreenshotSize(frames, source.width, source.height);
+            resolveDetection(entry.id, frame, source);
+            if (frame) {
+              matched++;
+              devices.add(frameLabel(frame));
+            } else {
+              unmatchedNames.push(entry.file.name);
+            }
+          } catch {
+            resolveDetection(entry.id, undefined);
+            unmatchedNames.push(entry.file.name);
           }
         }
-        tempCtx.putImageData(imageData, adjustedX, adjustedY);
-      } else {
-        tempCtx.drawImage(
-          screenImg,
-          adjustedX,
-          adjustedY,
-          adjustedWidth,
-          adjustedHeight
+      };
+
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, added.length) }, worker)
+      );
+
+      if (matched > 0) {
+        toast.success(
+          matched === 1
+            ? `Matched ${Array.from(devices)[0]}`
+            : `Matched ${matched} shots across ${devices.size} device${
+                devices.size === 1 ? '' : 's'
+              }`
         );
       }
 
-      // The corner masks are plain square blocks rather than the screen's
-      // rounded silhouette, so they leave screenshot pixels underneath the
-      // frame's rounded corner. Erase everything the frame body covers using
-      // its own alpha channel, which is the authoritative screen shape. This
-      // also softens the edge against the frame's antialiasing.
-      tempCtx.globalCompositeOperation = "destination-out";
-      tempCtx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
-      tempCtx.globalCompositeOperation = "source-over";
-
-      ctx.drawImage(tempCanvas, 0, 0);
-      ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
-      return await new Promise<Blob>((resolve) => {
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-        }, "image/png");
-      });
-    } finally {
-      URL.revokeObjectURL(imageUrl);
-    }
-  };
-
-  // Strips characters that are unsafe in a filename. Both the pattern and the
-  // values substituted into it can contain these: an uploaded file may be named
-  // "../foo.png", and some frame models legitimately contain a dot ("12.9").
-  const sanitizeFilename = (value: string): string =>
-    value
-      .replace(/[/\\:*?"<>|]/g, '')
-      .replace(/\.\.+/g, '.')
-      .replace(/--+/g, '-')
-      .replace(/__+/g, '_')
-      .replace(/\s+/g, ' ')
-      .replace(/^[-_\s.]+|[-_\s.]+$/g, '');
-
-  const applyFilenamePattern = (originalName: string, frame: DeviceFrame): string => {
-    const nameWithoutExt = originalName.replace(/\.[^/.]+$/, '');
-    const category = frame.category || '';
-    const deviceModel = frame.model || '';
-    const deviceVersion = frame.version || '';
-    const deviceVariant = frame.variant || '';
-    const deviceColor = frame.color || '';
-    const orientation = frame.orientation || '';
-    
-    const result = filenamePattern
-      .replace(/{original}/g, nameWithoutExt)
-      .replace(/{category}/g, category)
-      .replace(/{model}/g, deviceModel)
-      .replace(/{version}/g, deviceVersion)
-      .replace(/{variant}/g, deviceVariant)
-      .replace(/{color}/g, deviceColor)
-      .replace(/{orientation}/g, orientation);
-
-    // An empty result would make every image in a batch collide on the same zip
-    // entry, so fall back rather than emitting a bare ".png".
-    return (
-      sanitizeFilename(result) ||
-      sanitizeFilename(`framed-${nameWithoutExt}`) ||
-      'framed-image'
-    );
-  };
-
-  // Download all framed images as zip
-  const handleDownloadZip = async () => {
-    toast.info("Creating a zip...");
-    const zip = new JSZip();
-    // Distinct images can produce the same name — either because sanitizing
-    // collapses them together, or because the pattern omits {original} and is
-    // therefore identical for every image. JSZip would silently keep only the
-    // last entry, so suffix duplicates instead of losing images.
-    const usedNames = new Set<string>();
-    for (let i = 0; i < images.length; i++) {
-      const image = images[i];
-      // Use the currently selected frame for all images
-      const blob = await renderFramedImage(image, selectedFrame!);
-      const baseName = applyFilenamePattern(image.name, selectedFrame!);
-      // Step past any suffix that is itself already taken, so a batch holding
-      // both "shot.png" twice and a literal "shot-2.png" still stays unique.
-      let filename = baseName;
-      let suffix = 2;
-      while (usedNames.has(filename)) {
-        filename = `${baseName}-${suffix}`;
-        suffix++;
+      if (unmatchedNames.length > 0) {
+        toast.warning(
+          unmatchedNames.length === 1
+            ? `No device matches ${unmatchedNames[0]}`
+            : `${unmatchedNames.length} images had no matching device`
+        );
       }
-      usedNames.add(filename);
-      zip.file(`${filename}.png`, blob);
+    },
+    [frames, addFiles, resolveDetection]
+  );
+
+  // The empty state advertises clipboard paste, so it has to work.
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const files = Array.from(event.clipboardData?.files ?? []);
+      if (files.length > 0) {
+        event.preventDefault();
+        void handleFilesSelected(files);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [handleFilesSelected]);
+
+  const selectedItems = useMemo(
+    () => items.filter((item) => selectedIds.has(item.id)),
+    [items, selectedIds]
+  );
+
+  // Resolved from the live list so the overlay closes if its item is removed.
+  const zoomedItem = useMemo(
+    () => items.find((item) => item.id === zoomedId),
+    [items, zoomedId]
+  );
+
+  /**
+   * Items in the order they appear on screen. Grouping reorders the sheet, so
+   * using the raw queue would make the arrows jump between groups.
+   */
+  const orderedItems = useMemo(
+    () => displayOrder(items, groupByDevice),
+    [items, groupByDevice]
+  );
+
+  // The zoom overlay only shows rendered images, so it skips the rest.
+  const zoomableItems = useMemo(
+    () => orderedItems.filter((item) => item.status === 'done' && item.previewUrl),
+    [orderedItems]
+  );
+
+  // Read through a ref so the handler identity is stable: it is passed to every
+  // memoised Card, and a new function each render would defeat the memo.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  // Read through a ref for the same reason as items: keeping the handler
+  // identity stable is what lets the memoised cards skip re-rendering.
+  const groupByDeviceRef = useRef(groupByDevice);
+  groupByDeviceRef.current = groupByDevice;
+
+  const handleToggleSelect = useCallback(
+    (id: string, event: React.MouseEvent) => {
+      // Range selection has to follow the order cards are displayed in, which
+      // grouping changes. Slicing the raw array while grouped would select
+      // cards from other groups and skip ones lying between the endpoints.
+      const current = displayOrder(itemsRef.current, groupByDeviceRef.current);
+      setSelectedIds((prev) => {
+        // Shift extends from the last click; plain click replaces the selection,
+        // which is what a contact sheet is expected to do.
+        if (event.shiftKey && lastClickedIdRef.current) {
+          const from = current.findIndex((item) => item.id === lastClickedIdRef.current);
+          const to = current.findIndex((item) => item.id === id);
+          if (from !== -1 && to !== -1) {
+            const [start, end] = from < to ? [from, to] : [to, from];
+            const next = new Set(prev);
+            current.slice(start, end + 1).forEach((item) => next.add(item.id));
+            return next;
+          }
+        }
+        if (event.metaKey || event.ctrlKey) {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          lastClickedIdRef.current = id;
+          return next;
+        }
+        lastClickedIdRef.current = id;
+        // A plain click always selects. Toggling off here would leave nothing
+        // selected and silently disable the whole inspector; use ⌘/Ctrl-click
+        // to remove an image from a multi-selection.
+        return new Set([id]);
+      });
+    },
+    []
+  );
+
+  const handleSetFrame = useCallback(
+    (frame: DeviceFrame) => {
+      if (selectedIds.size === 0) return;
+      setFrameFor(Array.from(selectedIds), frame);
+    },
+    [selectedIds, setFrameFor]
+  );
+
+  const handleSelectAll = useCallback(() => {
+    const current = itemsRef.current;
+    setSelectedIds((prev) =>
+      prev.size === current.length ? new Set() : new Set(current.map((item) => item.id))
+    );
+  }, []);
+
+  const handleRemoveSelected = useCallback(() => {
+    removeItems(Array.from(selectedIds));
+    setSelectedIds(new Set());
+  }, [removeItems, selectedIds]);
+
+  const namePreview = useMemo(() => {
+    const sample = selectedItems[0] ?? items[0];
+    if (!sample) return 'framed-screenshot';
+    const index = items.findIndex((item) => item.id === sample.id);
+    return buildFilename(tokens, sample.file.name, sample.frame, Math.max(index, 0));
+  }, [tokens, selectedItems, items]);
+
+  /**
+   * Resolves once none of the given items are still detecting.
+   *
+   * Detection is what assigns the device, and it runs concurrently with the
+   * user clicking Download. Polling the ref is enough here: detection always
+   * terminates, either with a frame or as 'unmatched'.
+   */
+  const waitForDetection = useCallback(async (ids: Set<string>) => {
+    const stillDetecting = () =>
+      itemsRef.current.some((item) => ids.has(item.id) && item.status === 'detecting');
+    while (stillDetecting()) {
+      await new Promise((resolve) => setTimeout(resolve, 80));
     }
-    const content = await zip.generateAsync({ type: "blob" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(content);
-    link.download = "framed-screenshots.zip";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-    toast.success("Zip created successfully!");
-  };
+  }, []);
+
+  const downloadZip = useCallback(
+    async (target: QueueItem[], label: string) => {
+      setIsDownloading(true);
+      try {
+        // Detection assigns the device, so an item still detecting has no frame
+        // and would be dropped from the archive the button already counted.
+        // Wait for it to settle, then re-read the items rather than using the
+        // snapshot taken before the await.
+        const targetIds = new Set(target.map((item) => item.id));
+        await waitForDetection(targetIds);
+
+        const settled = itemsRef.current.filter((item) => targetIds.has(item.id));
+
+        // Export re-renders at full resolution, so anything with a device is
+        // exportable regardless of where it sits in the render queue.
+        const ready = settled.filter((item) => item.frame);
+        if (ready.length === 0) {
+          toast.error(
+            settled.length > 0
+              ? 'None of those images matched a device'
+              : 'Nothing to download yet'
+          );
+          return;
+        }
+
+        const skipped = settled.length - ready.length;
+        if (skipped > 0) {
+          toast.warning(
+            `${skipped} image${skipped === 1 ? '' : 's'} had no matching device and ${
+              skipped === 1 ? 'was' : 'were'
+            } skipped`
+          );
+        }
+
+        const zip = new JSZip();
+        // Number from each item's position in the full queue, so {index} matches
+        // the naming preview and the single-image download. Numbering the
+        // filtered subset would renumber an item shown as 03 down to 01.
+        const names = buildUniqueFilenames(
+          tokens,
+          ready.map((item) => ({
+            name: item.file.name,
+            frame: item.frame,
+            index: itemsRef.current.findIndex((entry) => entry.id === item.id),
+          }))
+        );
+
+        // Render at full resolution here rather than on upload. Sequentially,
+        // because each render is main-thread canvas work.
+        for (let index = 0; index < ready.length; index++) {
+          const item = ready[index];
+          const blob = await renderFrameToBlob(item.file, item.frame!, {
+            backgroundColor,
+          });
+          zip.file(`${names[index]}.png`, blob);
+        }
+
+        const content = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(content);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${label}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast.success(`Downloaded ${ready.length} image${ready.length === 1 ? '' : 's'}`);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to create the zip');
+      } finally {
+        setIsDownloading(false);
+      }
+    },
+    [tokens, backgroundColor, waitForDetection]
+  );
+
+  const handleCopyImage = useCallback(async () => {
+    const item = selectedItems[0];
+    if (!item?.frame || item.status !== 'done') {
+      toast.error('That image has not finished rendering');
+      return;
+    }
+    try {
+      // Safari requires the ClipboardItem to be constructed synchronously with
+      // a promise, or it rejects the write as not user-initiated.
+      const blob = renderFrameToBlob(item.file, item.frame, { backgroundColor });
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      toast.success('Copied to the clipboard');
+    } catch {
+      toast.error('Could not copy the image');
+    }
+  }, [selectedItems, backgroundColor]);
+
+  const handleDownloadSingle = useCallback(
+    async (item: QueueItem) => {
+      if (!item.frame || item.status !== 'done') return;
+      const index = items.findIndex((entry) => entry.id === item.id);
+      const blob = await renderFrameToBlob(item.file, item.frame, { backgroundColor });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${buildFilename(
+        tokens,
+        item.file.name,
+        item.frame,
+        Math.max(index, 0)
+      )}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    [items, tokens, backgroundColor]
+  );
 
   if (isLoading) {
     return (
-      <div className="w-full max-w-6xl">
-        <div className="bg-white rounded-xl shadow-xl p-8 text-center">
-          <p className="text-gray-500">Loading available frames...</p>
-        </div>
+      <div className="flex flex-1 items-center justify-center">
+        <p className="font-mono text-[12.5px] text-ink-soft">Loading device frames…</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="w-full max-w-6xl">
-        <div className="bg-white rounded-xl shadow-xl p-8 text-center">
-          <p className="text-red-500">Error loading frames: {error}</p>
-        </div>
+      <div className="flex flex-1 items-center justify-center">
+        <p className="font-mono text-[12.5px] text-danger">
+          Could not load device frames: {error}
+        </p>
       </div>
     );
   }
 
-  // If no frames or no selectedFrame, show the uploader
-  if (!frames.length || !selectedFrame) {
+  if (items.length === 0) {
     return (
-      <div className="w-full max-w-6xl">
-        <div className="bg-white rounded-xl shadow-xl overflow-hidden transition-all duration-300">
-          <UploadZone onFilesSelected={handleFilesSelected} />
-        </div>
-      </div>
+      // No wrapper: UploadZone is already a flex column, and an extra
+      // unconstrained div here let the landing page grow past the viewport.
+      <UploadZone onFilesSelected={(files) => void handleFilesSelected(files)} />
     );
   }
 
   return (
-    <div className="w-full max-w-6xl">
-      {images.length === 0 && (
-        <div className="mb-8 px-2 py-5 bg-gradient-to-r from-gray-50 via-white to-gray-100 border border-gray-200 rounded-2xl shadow flex flex-col items-center text-center relative overflow-hidden">
-          <p className="text-base md:text-lg text-gray-700 max-w-3xl mx-auto mb-1">
-            Frame your <span className="font-semibold text-black">iPhone</span>,{" "}
-            <span className="font-semibold text-black">iPad</span>, and{" "}
-            <span className="font-semibold text-black">Apple Watch</span>{" "}
-            screenshots in beautiful, realistic Apple device mockups.
-          </p>
-          <p className="text-sm text-gray-500 max-w-xl mx-auto">
-            Just upload your screenshots—AppleFramer auto-detects the device,
-            supports batch processing, and lets you download your framed images
-            individually or as a zip. Perfect for App Store, marketing, or
-            portfolio use.
-          </p>
-        </div>
-      )}
-      <div className="bg-white rounded-xl shadow-xl overflow-hidden transition-all duration-300">
-        {images.length === 0 ? (
-          <>
-            <UploadZone onFilesSelected={handleFilesSelected} />
-          </>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <SelectionBar
+        selectedCount={selectedIds.size}
+        totalCount={items.length}
+        groupByDevice={groupByDevice}
+        onToggleGroupByDevice={() => setGroupByDevice((value) => !value)}
+        onSelectAll={handleSelectAll}
+        onRemoveSelected={handleRemoveSelected}
+        doneCount={doneCount}
+        renderableCount={renderableCount}
+        isRendering={isRendering}
+      />
+
+      {/* Stacked below lg: the inspector is a fixed 316px, which squeezed the
+          sheet to ~59px on a 375px phone and made cards unusable. */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {view === 'sheet' ? (
+          <ContactSheet
+            items={items}
+            selectedIds={selectedIds}
+            groupByDevice={groupByDevice}
+            backgroundColor={backgroundColor}
+            onToggleSelect={handleToggleSelect}
+            onZoom={setZoomedId}
+            onAddMore={() => addMoreInputRef.current?.click()}
+          />
         ) : (
-          <div className="flex flex-col md:flex-row min-h-[500px]">
-            <div className="w-full md:w-3/4 p-6 flex items-center justify-center relative">
-              {selectedImageIndex !== null && (
-                <FramePreview
-                  image={images[selectedImageIndex]}
-                  frame={selectedFrame}
-                  downloadFilename={`${applyFilenamePattern(images[selectedImageIndex].name, selectedFrame)}.png`}
-                  backgroundColor={backgroundColor}
-                />
-              )}
-
-              <button
-                className="absolute top-4 right-4 p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-                onClick={toggleSettings}
-              >
-                <Settings className="h-5 w-5 text-gray-600" />
-              </button>
-            </div>
-
-            <div className="w-full md:w-1/4 bg-gray-50 p-4 border-t md:border-t-0 md:border-l border-gray-200">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-medium">Screenshots</h3>
-                <button
-                  className="flex items-center text-sm text-blue-500 hover:text-blue-600"
-                  onClick={() => document.getElementById("file-input")?.click()}
-                >
-                  <ImagePlus className="h-4 w-4 mr-1" />
-                  Add more
-                </button>
-                <input
-                  id="file-input"
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files) {
-                      handleFilesSelected(Array.from(e.target.files));
-                    }
-                  }}
-                />
-              </div>
-
-              <div className="overflow-y-auto max-h-[400px] space-y-3">
-                {images.map((image, index) => (
-                  <div
-                    key={index}
-                    className={`flex items-center p-2 rounded-lg cursor-pointer transition-colors ${
-                      selectedImageIndex === index
-                        ? "bg-blue-50 border border-blue-200"
-                        : "hover:bg-gray-100"
-                    }`}
-                    onClick={() => handleSelectImage(index)}
-                  >
-                    <div className="w-12 h-12 bg-gray-200 rounded-md overflow-hidden mr-3 flex-shrink-0">
-                      <img
-                        src={URL.createObjectURL(image)}
-                        alt={`Preview ${index}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <div className="flex-grow min-w-0">
-                      <p className="text-sm truncate">{image.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {Math.round(image.size / 1024)} KB
-                      </p>
-                    </div>
-                    <button
-                      className="ml-2 p-1 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-200 transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveImage(index);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {images.length > 0 && selectedFrame && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="mb-3">
-                    <label className="block text-xs font-medium text-gray-700 mb-1.5">
-                      Filename pattern
-                    </label>
-                    <input
-                      type="text"
-                      value={filenamePattern}
-                      onChange={(e) => setFilenamePattern(e.target.value)}
-                      placeholder="framed-{original}"
-                      className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
-                    />
-                    <div className="space-y-1.5">
-                      <div className="flex flex-wrap gap-1">
-                        {[
-                          { label: 'Original', value: '{original}' },
-                          { label: 'Category', value: '{category}' },
-                          { label: 'Model', value: '{model}' },
-                          { label: 'Version', value: '{version}' },
-                          { label: 'Variant', value: '{variant}' },
-                          { label: 'Color', value: '{color}' },
-                          { label: 'Orientation', value: '{orientation}' },
-                        ].map((token) => (
-                          <button
-                            key={token.value}
-                            onClick={() => setFilenamePattern(prev => prev + token.value)}
-                            className="px-2 py-0.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 transition-colors"
-                          >
-                            {token.label}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {[
-                          { label: 'Dash', value: '-' },
-                          { label: 'Underscore', value: '_' },
-                          { label: 'Space', value: ' ' },
-                          { label: 'Dot', value: '.' },
-                        ].map((sep) => (
-                          <button
-                            key={sep.label}
-                            onClick={() => setFilenamePattern(prev => prev + sep.value)}
-                            className="px-2 py-0.5 text-xs bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 transition-colors"
-                          >
-                            {sep.label}
-                          </button>
-                        ))}
-                        <button
-                          onClick={() => setFilenamePattern('')}
-                          className="px-2 py-0.5 text-xs bg-red-50 hover:bg-red-100 text-red-700 rounded border border-red-200 transition-colors ml-auto"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500 bg-gray-50 p-1.5 rounded border border-gray-200 break-all mt-2">
-                      Preview:{" "}
-                      {applyFilenamePattern(
-                        images[selectedImageIndex ?? 0].name,
-                        selectedFrame
-                      )}
-                      .png
-                    </p>
-                  </div>
-                  {images.length > 1 && (
-                    <button
-                      className="w-full mb-2 py-2 px-4 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
-                      onClick={handleDownloadZip}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download All as Zip
-                    </button>
-                  )}
-                  {selectedImageIndex !== null && (
-                    <button
-                      className="w-full py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center transition-colors"
-                      onClick={() => {
-                        document.getElementById("download-button")?.click();
-                      }}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download Framed Image
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+          <SinglePreview
+            item={selectedItems[0] ?? items[0]}
+            backgroundColor={backgroundColor}
+            onDownload={handleDownloadSingle}
+            siblings={orderedItems}
+            onNavigate={(id) => setSelectedIds(new Set([id]))}
+          />
         )}
+
+        <Inspector
+          frames={frames}
+          items={items}
+          selectedItems={selectedItems}
+          onSetFrame={handleSetFrame}
+          backgroundColor={backgroundColor}
+          onSetBackgroundColor={setBackgroundColor}
+          tokens={tokens}
+          onSetTokens={setTokens}
+          namePreview={namePreview}
+          onDownloadAll={() => void downloadZip(items, 'framed-screenshots')}
+          onDownloadSelected={() => void downloadZip(selectedItems, 'framed-selection')}
+          onCopyImage={() => void handleCopyImage()}
+          isDownloading={isDownloading}
+        />
       </div>
 
-      {showSettings && (
-        <FrameSettings
-          selectedFrame={selectedFrame}
-          setSelectedFrame={setSelectedFrame}
-          onClose={() => setShowSettings(false)}
+      <input
+        ref={addMoreInputRef}
+        type="file"
+        multiple
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          if (event.target.files?.length) {
+            void handleFilesSelected(Array.from(event.target.files));
+          }
+          event.target.value = '';
+        }}
+      />
+
+      {zoomedItem && (
+        <ZoomOverlay
+          item={zoomedItem}
           backgroundColor={backgroundColor}
-          setBackgroundColor={setBackgroundColor}
+          siblings={zoomableItems}
+          onNavigate={setZoomedId}
+          onClose={() => setZoomedId(null)}
         />
       )}
     </div>

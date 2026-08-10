@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AppleFramer">
+  <defs>
+    <!-- Confines the photo motif to the screen, so the mountain cannot spill
+         past the screen's rounded corners. -->
+    <clipPath id="screen">
+      <rect x="164" y="108" width="184" height="296" rx="28"/>
+    </clipPath>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="#4b31d4"/>
+  <!-- A device bezel, wide enough that the frame still reads at favicon sizes. -->
+  <rect x="128" y="72" width="256" height="368" rx="52" fill="#ffffff"/>
+  <!-- The screenshot inside it: a photo motif with a horizon and sun. Kept
+       large and high-contrast so 32px and 16px stay legible. -->
+  <rect x="164" y="108" width="184" height="296" rx="28" fill="#4b31d4"/>
+  <g clip-path="url(#screen)">
+    <circle cx="216" cy="180" r="26" fill="#ffffff"/>
+    <path d="M164 346l70-86 46 56 30-34 38 46v76H164z" fill="#ffffff"/>
+  </g>
+</svg>

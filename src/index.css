@@ -2,19 +2,80 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@layer base {
+  /* Light theme — values taken from the 1c "Contact Sheet" design. */
+  :root {
+    --af-canvas: 244 246 248; /* #f4f6f8 */
+    --af-surface: 255 255 255;
+    --af-surface-muted: 238 240 244; /* #eef0f4 */
+    --af-surface-sunken: 251 252 253; /* #fbfcfd */
+    --af-hairline: 223 228 234; /* #dfe4ea */
+    --af-ink: 16 20 24; /* #101418 */
+    --af-ink-soft: 107 116 128; /* #6b7480 */
+    --af-ink-faint: 152 161 172; /* #98a1ac */
+    --af-accent: 75 49 212; /* #4b31d4 */
+    --af-accent-deep: 58 36 173; /* #3a24ad */
+    --af-accent-wash: 241 239 255; /* #f1efff */
+    --af-accent-edge: 220 214 251; /* #dcd6fb */
+    --af-danger: 176 66 31; /* #b0421f */
+
+    /* Checkerboard behind transparent output. */
+    --af-checker: 230 234 239;
+
+    color-scheme: light;
+  }
+
+  /* Dark theme. The design only specifies light, so this keeps the same
+     indigo accent (which holds up on dark) and inverts the neutral ramp. */
+  .dark {
+    --af-canvas: 13 15 19;
+    --af-surface: 23 26 32;
+    --af-surface-muted: 34 38 46;
+    --af-surface-sunken: 18 21 26;
+    --af-hairline: 45 50 60;
+    --af-ink: 237 240 244;
+    --af-ink-soft: 150 158 170;
+    --af-ink-faint: 108 116 128;
+    --af-accent: 124 103 240;
+    --af-accent-deep: 150 133 248;
+    --af-accent-wash: 32 30 58;
+    --af-accent-edge: 60 52 110;
+    --af-danger: 224 122 84;
+
+    --af-checker: 42 47 56;
+
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    @apply bg-canvas text-ink font-sans;
+  }
+
+  /* Keyboard focus only — the sheet is click-heavy and persistent rings on
+     every card would be noise. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--af-accent));
+    outline-offset: 2px;
+  }
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
+@layer utilities {
+  /* Transparent-output checkerboard, matching the design's conic pattern. */
+  .bg-checker {
+    background-color: rgb(var(--af-canvas));
+    background-image: conic-gradient(
+      rgb(var(--af-checker)) 0 25%,
+      transparent 0 50%,
+      rgb(var(--af-checker)) 0 75%,
+      transparent 0
+    );
+    background-size: 12px 12px;
+  }
 }
 
 @keyframes fadeIn {
@@ -23,11 +84,11 @@ body {
 }
 
 @keyframes slideUp {
-  from { 
+  from {
     opacity: 0;
     transform: translateY(10px);
   }
-  to { 
+  to {
     opacity: 1;
     transform: translateY(0);
   }
@@ -39,4 +100,12 @@ body {
 
 .animate-slideUp {
   animation: slideUp 0.3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeIn,
+  .animate-slideUp,
+  .animate-af-pulse {
+    animation: none;
+  }
 }

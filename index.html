@@ -2,15 +2,82 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/appleframer-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AppleFramer</title>
-    <meta name="description" content="Frame your Apple device screenshots with a beautiful device bezel. All processing happens locally - your images never leave your device. AppleFramer helps you showcase your screenshots beautifully.">
-    <meta property="og:title" content="AppleFramer" />
-    <meta property="og:description" content="Frame your Apple device screenshots with a beautiful device bezel. All processing happens locally - your images never leave your device. AppleFramer helps you showcase your screenshots beautifully." />
-    <meta property="og:image" content="/appleframer-og.jpg" />
+
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#4b31d4" />
+
+    <title>AppleFramer — Device frames for App Store screenshots</title>
+    <meta
+      name="description"
+      content="Put iPhone, iPad and Apple Watch screenshots inside the device they came from. Handles a whole App Store set at once, needs no account, and runs entirely in your browser."
+    />
+    <link rel="canonical" href="https://appleframer.com/" />
+
+    <meta property="og:site_name" content="AppleFramer" />
+    <meta property="og:title" content="AppleFramer — Device frames for App Store screenshots" />
+    <meta
+      property="og:description"
+      content="Put iPhone, iPad and Apple Watch screenshots inside the device they came from. Handles a whole App Store set at once, needs no account, and runs entirely in your browser."
+    />
+    <meta property="og:image" content="https://appleframer.com/appleframer-og.jpg" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://appleframer.com/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AppleFramer — Device frames for App Store screenshots" />
+    <meta
+      name="twitter:description"
+      content="Put iPhone, iPad and Apple Watch screenshots inside the device they came from. Runs in your browser."
+    />
+    <meta name="twitter:image" content="https://appleframer.com/appleframer-og.jpg" />
+
+    <!-- Structured data: lets search engines show this as a free web app. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "AppleFramer",
+        "url": "https://appleframer.com/",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Any (web browser)",
+        "description": "Put iPhone, iPad and Apple Watch screenshots into realistic Apple device frames for App Store listings. Batch processing, runs entirely in the browser.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "featureList": [
+          "Automatic device detection from screenshot size",
+          "iPhone, iPad and Apple Watch device frames",
+          "Batch processing with ZIP download",
+          "Custom background colours and filename patterns",
+          "Runs locally — images are never uploaded"
+        ]
+      }
+    </script>
+    <link rel="preload" as="image" href="/hero-framed.png" />
+    <link rel="preload" as="image" href="/hero-screenshot.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Apply the stored theme before first paint so a dark-mode reload
+      // doesn't flash the light palette.
+      (function () {
+        try {
+          var stored = localStorage.getItem('theme');
+          var dark = stored
+            ? stored === 'dark'
+            : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* localStorage unavailable — fall back to light */
+        }
+      })();
+    </script>
     <script
       src="https://stats.titans.sh/api/script.js"
       data-site-id="12"
@@ -21,6 +88,7 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script src="https://www.titansofindustry.be/project-menu.js"></script>
-    <titans-project-menu theme="light" position="bottom-right"></titans-project-menu>
+    <!-- Bottom-left: on the right it sat on top of the footer's GitHub button. -->
+    <titans-project-menu theme="light" position="bottom-left"></titans-project-menu>
   </body>
 </html> 
