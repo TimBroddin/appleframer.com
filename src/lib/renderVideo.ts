@@ -257,16 +257,27 @@ async function canDecodeAudio(config: AudioDecoderConfig): Promise<boolean> {
 }
 
 /**
- * The track's codec as a WebCodecs codec string.
+ * The AudioDecoder configuration for a demuxed audio track.
  *
- * mp4box reports the sample entry's fourcc as written in the container, and for
- * Opus that is literally "Opus" — the registered box name. WebCodecs matches
- * codec strings case-sensitively and wants "opus", so an uncorrected string is
- * rejected and a perfectly decodable track gets dropped as unsupported. Harmless
- * for AAC, whose "mp4a.40.2" is already lowercase.
+ * Built in ONE place so the pre-flight support check and the real configure()
+ * call can never test different values — a gate that probes a different config
+ * than the decoder actually receives is worse than no gate, because it reports
+ * confidence it has not earned. This exact object is passed to both.
+ *
+ * The codec string is lowercased because mp4box reports the sample entry's
+ * fourcc as written in the container, and for Opus that is literally "Opus" —
+ * the registered box name. WebCodecs matches codec strings case-sensitively and
+ * wants "opus", so an uncorrected string is rejected and a perfectly decodable
+ * track gets dropped as unsupported. Harmless for AAC, whose "mp4a.40.2" is
+ * already lowercase.
  */
-function audioCodecString(track: Track): string {
-  return track.codec.toLowerCase();
+function audioDecoderConfig(audio: DemuxedAudio): AudioDecoderConfig {
+  return {
+    codec: audio.track.codec.toLowerCase(),
+    numberOfChannels: audio.track.audio?.channel_count ?? 2,
+    sampleRate: audio.track.audio?.sample_rate ?? 48_000,
+    description: audio.description,
+  };
 }
 
 interface DemuxedAudio {
@@ -495,43 +506,67 @@ async function* decodeFrames(
 const MAX_AUDIO_QUEUE = 8;
 
 /**
- * Decodes the source audio and re-encodes it to AAC, feeding `muxer` directly.
- *
- * Audio never touches the canvas — it is a straight transcode running alongside
- * compositing — so it is kept out of the frame loop entirely rather than
- * interleaved with it.
- *
- * Timestamps are shifted by `base`, the shared origin the video track also uses,
- * so both encoders describe one timeline. See timestampBase.
- *
- * Every AudioData is closed in a finally: like VideoFrame it holds memory the
- * GC does not reclaim, and the leak only shows on long recordings.
+ * A configured, ready-to-run audio pipeline. Its mere existence is the proof
+ * that this source's audio can actually be transcoded.
  */
-async function transcodeAudio(
-  audio: DemuxedAudio,
-  muxer: Muxer<ArrayBufferTarget>,
-  base: number,
-  signal?: AbortSignal
-): Promise<void> {
-  const { track, chunks, description } = audio;
-  const numberOfChannels = track.audio?.channel_count ?? 2;
-  const sampleRate = track.audio?.sample_rate ?? 48_000;
+interface AudioPipeline {
+  decoder: AudioDecoder;
+  encoder: AudioEncoder;
+  pending: AudioData[];
+  /**
+   * Where encoded chunks go. The encoder's output callback is fixed at
+   * construction, but the muxer does not exist yet at that point, so the
+   * callback closes over this and it is pointed at the muxer once there is one.
+   */
+  setSink: (sink: (chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata) => void) => void;
+  /** Set from either codec's error callback; read by the transcode loop. */
+  readError: () => Error | undefined;
+  close: () => void;
+}
+
+/**
+ * Builds and configures both audio codecs, or returns undefined if this source's
+ * audio cannot be transcoded.
+ *
+ * Split out from the transcode itself, and called BEFORE the muxer is built, so
+ * the decision to drop audio is always made while it is still free to make. Once
+ * the muxer has declared an audio track, dropping it leaves a track with a
+ * declared duration and zero samples — measured to produce exactly the file that
+ * stalls on playback — and a muxer cannot un-declare a track. Every way audio
+ * can fail to start must therefore be discovered here, not later.
+ *
+ * `isConfigSupported` alone is not enough: it validates the shape of a config
+ * without necessarily accepting the codec-specific `description`, so a real
+ * `configure()` is the only honest test. Both are done here, on the same config
+ * object, and a throw from either means audio is dropped rather than fatal.
+ */
+async function createAudioPipeline(audio: DemuxedAudio): Promise<AudioPipeline | undefined> {
+  const decoderConfig = audioDecoderConfig(audio);
+  // The exact config configure() will receive — never a reconstructed one, or
+  // the gate would be answering a question nobody asked.
+  if (!(await canDecodeAudio(decoderConfig))) return undefined;
+
+  const numberOfChannels = decoderConfig.numberOfChannels ?? 2;
+  const sampleRate = decoderConfig.sampleRate ?? 48_000;
 
   let codecError: Error | undefined;
+  const noteError = (error: Error) => {
+    codecError = error;
+  };
+
   let decoder: AudioDecoder | undefined;
   let encoder: AudioEncoder | undefined;
-  // Declared outside the try so the cleanup below can always reach it: a throw
-  // from either configure() would otherwise leave decoded frames unreachable.
   const pending: AudioData[] = [];
+  // Nothing is encoded before transcodeAudio points this at the muxer, so the
+  // no-op is never actually hit; it exists so the callback is total.
+  let sink: (chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata) => void = () => {};
 
   try {
     encoder = new AudioEncoder({
-      output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+      output: (chunk, meta) => sink(chunk, meta),
       // Stashed rather than thrown, for the same reason the video codecs do it:
       // a throw here lands on the codec's own task, past any try/catch.
-      error: (error) => {
-        codecError = error;
-      },
+      error: noteError,
     });
     encoder.configure({
       codec: 'mp4a.40.2',
@@ -542,11 +577,65 @@ async function transcodeAudio(
 
     decoder = new AudioDecoder({
       output: (data) => pending.push(data),
-      error: (error) => {
-        codecError = error;
-      },
+      error: noteError,
     });
-    decoder.configure({ codec: audioCodecString(track), numberOfChannels, sampleRate, description });
+    decoder.configure(decoderConfig);
+  } catch {
+    // An unsupported description, a sample rate the AAC encoder refuses — this
+    // is the failure the pre-flight check cannot see. Reaching it costs only the
+    // codecs built so far, because the muxer does not exist yet.
+    if (decoder && decoder.state !== 'closed') decoder.close();
+    if (encoder && encoder.state !== 'closed') encoder.close();
+    return undefined;
+  }
+
+  return {
+    decoder,
+    encoder,
+    pending,
+    setSink: (next) => {
+      sink = next;
+    },
+    readError: () => codecError,
+    close: () => {
+      for (const data of pending) data.close();
+      pending.length = 0;
+      if (decoder!.state !== 'closed') decoder!.close();
+      if (encoder!.state !== 'closed') encoder!.close();
+    },
+  };
+}
+
+/**
+ * Decodes the source audio and re-encodes it to AAC, feeding `muxer` directly.
+ *
+ * Audio never touches the canvas — it is a straight transcode running alongside
+ * compositing — so it is kept out of the frame loop entirely rather than
+ * interleaved with it.
+ *
+ * Takes an already-configured pipeline, because whether audio is viable has to
+ * be settled before the muxer declares the track. See createAudioPipeline.
+ *
+ * Timestamps are shifted by `base`, the shared origin the video track also uses,
+ * so both encoders describe one timeline. See timestampBase.
+ *
+ * Every AudioData is closed in a finally: like VideoFrame it holds memory the
+ * GC does not reclaim, and the leak only shows on long recordings.
+ */
+async function transcodeAudio(
+  pipeline: AudioPipeline,
+  audio: DemuxedAudio,
+  muxer: Muxer<ArrayBufferTarget>,
+  base: number,
+  signal?: AbortSignal
+): Promise<void> {
+  const { chunks } = audio;
+  const { decoder, encoder, pending } = pipeline;
+
+  try {
+    // The muxer exists and has declared the track, so encoded chunks now have
+    // somewhere to go.
+    pipeline.setSink((chunk, meta) => muxer.addAudioChunk(chunk, meta));
 
     // Encodes and closes everything decoded so far. Closing in a finally per
     // item means a throw from encode() — a closed queue after an abort, most
@@ -555,7 +644,7 @@ async function transcodeAudio(
       while (pending.length) {
         const data = pending.shift()!;
         try {
-          encoder!.encode(data);
+          encoder.encode(data);
         } finally {
           data.close();
         }
@@ -564,7 +653,8 @@ async function transcodeAudio(
 
     for (const chunk of chunks) {
       throwIfAborted(signal);
-      if (codecError) throw codecError;
+      const failure = pipeline.readError();
+      if (failure) throw failure;
 
       // Bounded on both codecs before another AudioData can be created, for the
       // same reason the video path bounds its queues: decoding outruns encoding,
@@ -572,7 +662,8 @@ async function transcodeAudio(
       while (decoder.decodeQueueSize > MAX_AUDIO_QUEUE || encoder.encodeQueueSize > MAX_AUDIO_QUEUE) {
         await yieldToCodec();
         throwIfAborted(signal);
-        if (codecError) throw codecError;
+        const failure = pipeline.readError();
+        if (failure) throw failure;
         drain();
       }
 
@@ -593,20 +684,18 @@ async function transcodeAudio(
     }
 
     await decoder.flush();
-    if (codecError) throw codecError;
+    const afterDecode = pipeline.readError();
+    if (afterDecode) throw afterDecode;
     drain();
 
     await encoder.flush();
-    if (codecError) throw codecError;
+    const afterEncode = pipeline.readError();
+    if (afterEncode) throw afterEncode;
   } finally {
-    // Anything decoded but never encoded. An abort mid-loop, or a throw from
-    // either configure(), lands here with the buffer non-empty and nothing else
-    // will ever close these.
-    for (const data of pending) data.close();
-    pending.length = 0;
-    // An aborted encode must not leave a running audio codec holding resources.
-    if (decoder && decoder.state !== 'closed') decoder.close();
-    if (encoder && encoder.state !== 'closed') encoder.close();
+    // Closes anything decoded but never encoded — an abort mid-loop lands here
+    // with the buffer non-empty and nothing else will ever close it — and both
+    // codecs, so an aborted encode leaves nothing running.
+    pipeline.close();
   }
 }
 
@@ -623,9 +712,15 @@ export async function renderVideoToBlob(
     backgroundColor?: string | null;
     signal?: AbortSignal;
     onProgress?: (fraction: number) => void;
+    /**
+     * Called when the source had audio but the export could not carry it, so
+     * the caller can say so rather than leaving the user to notice a silent
+     * video. Never called for a source that had no audio to begin with.
+     */
+    onAudioDropped?: (reason: Error) => void;
   } = {}
 ): Promise<Blob> {
-  const { backgroundColor = null, signal, onProgress } = options;
+  const { backgroundColor = null, signal, onProgress, onAudioDropped } = options;
   const info = await probeVideo(file);
   await assertVideoSupported();
 
@@ -634,19 +729,24 @@ export async function renderVideoToBlob(
   // and never feeding it produces a file that stalls on playback.
   const demuxed = await demuxVideoTrack(file);
 
-  // A source whose audio codec this browser cannot decode still exports — as
-  // video only. Failing the whole encode over an exotic audio codec would cost
-  // the user the thing they actually asked for, while muxing an audio track we
-  // cannot fill would produce a broken file, which is worse than dropping it.
+  // Both audio codecs are built and configured HERE, before the muxer exists, so
+  // a source whose audio cannot be transcoded is discovered while dropping it is
+  // still free. Once the muxer declares an audio track there is no way back:
+  // measured, a declared track fed zero samples yields a file whose audio stream
+  // has a full duration and no packets, which is the stall-on-playback case.
+  //
+  // Failing the whole encode over an exotic audio codec would cost the user the
+  // thing they actually asked for, so this degrades to video-only instead.
   let audio = demuxed.audio;
+  let audioPipeline: AudioPipeline | undefined;
   if (audio) {
-    const decodable = await canDecodeAudio({
-      codec: audio.track.codec,
-      numberOfChannels: audio.track.audio?.channel_count ?? 2,
-      sampleRate: audio.track.audio?.sample_rate ?? 48_000,
-      description: audio.description,
-    });
-    if (!decodable) audio = undefined;
+    audioPipeline = await createAudioPipeline(audio);
+    if (!audioPipeline) {
+      onAudioDropped?.(
+        new Error(`This video's audio (${audio.track.codec}) could not be decoded, so it was dropped.`)
+      );
+      audio = undefined;
+    }
   }
 
   // One base for both tracks, computed before either encoder runs so their
@@ -770,7 +870,9 @@ export async function renderVideoToBlob(
         });
         if (!encoder) {
           await configure();
-          if (audio) audioDone = transcodeAudio(audio, muxer!, base, signal);
+          if (audio && audioPipeline) {
+            audioDone = transcodeAudio(audioPipeline, audio, muxer!, base, signal);
+          }
         }
         await awaitEncoderCapacity(encoder!);
 
@@ -818,8 +920,30 @@ export async function renderVideoToBlob(
     // still holds buffered chunks truncates the audio track. transcodeAudio
     // flushes its own encoder before resolving, so awaiting it is the audio half
     // of this.
-    await Promise.all([encoder.flush(), audioDone]);
+    //
+    // The audio half is awaited SEPARATELY and its rejection caught, because a
+    // combined Promise.all would reject before finalize() and throw away a
+    // fully-encoded video track over an audio-only problem. An abort is the one
+    // audio failure that stays fatal — it means the user cancelled, so there is
+    // no export to salvage — and is re-raised below by the video path's own
+    // throwIfAborted. Anything else degrades to video-only, matching what the
+    // pre-flight does for a codec it could not configure at all.
+    const [, audioFailure] = await Promise.all([
+      encoder.flush(),
+      audioDone?.then(
+        () => undefined,
+        (error: Error) => error
+      ),
+    ]);
     if (encoderError) throw encoderError;
+    throwIfAborted(signal);
+    if (audioFailure) {
+      // The track was declared and partially fed. Measured: that truncates the
+      // audio rather than corrupting the file — players read the samples that
+      // are there — which is why this is recoverable at all, and why the
+      // unrecoverable case is handled before the muxer is built.
+      onAudioDropped?.(audioFailure);
+    }
     muxer.finalize();
     onProgress?.(1);
 
@@ -832,6 +956,12 @@ export async function renderVideoToBlob(
     // after this function has already returned, and swallows the rejection that
     // an abort raises, which would otherwise be unhandled.
     if (audioDone) await audioDone.catch(() => {});
+    // The pipeline is configured before the first frame is composited, so a
+    // throw anywhere before that — an unsupported output size, an abort on frame
+    // one — leaves two configured codecs that transcodeAudio never took
+    // ownership of. close() is idempotent via the state guards, so calling it
+    // after a completed transcode is harmless.
+    audioPipeline?.close();
     // Removing a video mid-encode must not leave a running encoder holding
     // hardware resources.
     if (encoder && encoder.state !== 'closed') encoder.close();
