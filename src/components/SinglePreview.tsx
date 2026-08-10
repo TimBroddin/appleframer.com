@@ -47,8 +47,16 @@ const SinglePreview = ({
     if (zoomed || !canNavigate) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      // Don't hijack arrows while typing in the inspector's fields.
-      if (target && (target.tagName === 'INPUT' || target.isContentEditable)) return;
+      // Don't hijack arrows while typing in the inspector's fields, or while a
+      // video player has focus — <video controls> seeks with the same keys, so
+      // stepping the batch would steal the scrub the user asked for.
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'VIDEO' ||
+          target.isContentEditable)
+      )
+        return;
       if (event.key === 'ArrowRight') step(1);
       else if (event.key === 'ArrowLeft') step(-1);
     };
@@ -99,6 +107,10 @@ const SinglePreview = ({
   }
 
   const ready = item.status === 'done' && item.previewUrl;
+  // Only a finished encode has something to play. While one is running the
+  // still preview is all that exists, and a <video> pointed at nothing would
+  // render as a dead player with a broken-media icon where the poster is.
+  const playable = isVideoFile(item.file) && item.status === 'done' && item.videoUrl;
 
   return (
     // min-h-0 lets the image region actually shrink to the pane, so the
@@ -132,14 +144,34 @@ const SinglePreview = ({
           </>
         )}
 
-        <img
-          src={ready ? displayUrl : item.sourceUrl}
-          alt={item.file.name}
-          onClick={() => ready && setZoomed(true)}
-          className={`max-h-full w-auto max-w-full object-contain ${
-            ready ? 'cursor-zoom-in' : 'opacity-40'
-          }`}
-        />
+        {playable ? (
+          // key on the id so stepping to another item builds a fresh element
+          // rather than reusing this one: React would otherwise only swap the
+          // src on a playing player, and the old clip's audio keeps running
+          // over the new selection until the load actually lands.
+          <video
+            key={item.id}
+            src={item.videoUrl}
+            poster={item.previewUrl}
+            controls
+            playsInline
+            // Metadata only: the encode is already in memory as a blob, but
+            // pulling the whole thing in to show a poster we already have is
+            // work for a clip the user may never press play on.
+            preload="metadata"
+            aria-label={item.file.name}
+            className="max-h-full w-auto max-w-full object-contain"
+          />
+        ) : (
+          <img
+            src={ready ? displayUrl : item.sourceUrl}
+            alt={item.file.name}
+            onClick={() => ready && setZoomed(true)}
+            className={`max-h-full w-auto max-w-full object-contain ${
+              ready ? 'cursor-zoom-in' : 'opacity-40'
+            }`}
+          />
+        )}
       </div>
 
       <div className="flex flex-none flex-col items-center gap-2">

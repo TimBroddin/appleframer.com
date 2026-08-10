@@ -52,8 +52,20 @@ const ZoomOverlay = ({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-      else if (event.key === 'ArrowRight') step(1);
+      // Escape is handled before the video guard below, deliberately: it is the
+      // way out of a modal and must work wherever focus sits. The player does
+      // nothing with it unless it is in native fullscreen, and there the
+      // browser consumes the key before this listener ever sees it.
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      // A focused <video controls> seeks with the arrows. Stepping the batch
+      // from the same press would throw away the scrub the user asked for and
+      // land them on another item with this one's audio still fading out, so
+      // the player keeps the arrows and navigation stays on the chevrons.
+      if ((event.target as HTMLElement | null)?.tagName === 'VIDEO') return;
+      if (event.key === 'ArrowRight') step(1);
       else if (event.key === 'ArrowLeft') step(-1);
     };
     window.addEventListener('keydown', onKeyDown);
@@ -85,6 +97,10 @@ const ZoomOverlay = ({
       setFullUrl(null);
     };
   }, [item.id, item.file, item.frame, backgroundColor]);
+
+  // Only a finished encode has something to play; anything else still has a
+  // still preview and nothing to point a player at.
+  const playable = isVideoFile(item.file) && item.status === 'done' && item.videoUrl;
 
   return (
     <div
@@ -130,12 +146,34 @@ const ZoomOverlay = ({
         </>
       )}
 
-      <img
-        src={fullUrl ?? item.previewUrl}
-        alt={item.file.name}
-        className="max-h-[calc(100%-3rem)] max-w-full object-contain"
-        onClick={(event) => event.stopPropagation()}
-      />
+      {playable ? (
+        // key on the id for the same reason as the single view: prev/next
+        // reuses this element otherwise, and a src swap on a playing player
+        // leaves the previous clip audible over the new one.
+        <video
+          key={item.id}
+          src={item.videoUrl}
+          poster={item.previewUrl}
+          controls
+          playsInline
+          preload="metadata"
+          aria-label={item.file.name}
+          className="max-h-[calc(100%-3rem)] max-w-full object-contain"
+          // The backdrop closes the overlay, so without this every press of
+          // play, pause or the scrubber would dismiss the thing being watched.
+          // Stopping propagation here does not disturb the controls: they are
+          // the shadow DOM's own, handled before the event reaches this
+          // element's listener at all.
+          onClick={(event) => event.stopPropagation()}
+        />
+      ) : (
+        <img
+          src={fullUrl ?? item.previewUrl}
+          alt={item.file.name}
+          className="max-h-[calc(100%-3rem)] max-w-full object-contain"
+          onClick={(event) => event.stopPropagation()}
+        />
+      )}
 
       <div className="flex items-center gap-2.5 font-mono text-xs-plus text-white/60">
         {canNavigate && (
