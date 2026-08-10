@@ -30,13 +30,9 @@ const Header = ({
           AppleFramer
         </span>
       </a>
-      {summary ? (
+      {summary && (
         <span className="ml-1.5 truncate pt-px font-mono text-[11.5px] leading-none text-ink-soft">
           {summary}
-        </span>
-      ) : (
-        <span className="ml-1.5 hidden rounded px-2 py-0.5 font-mono text-[10.5px] text-ink-soft sm:inline bg-surface-muted">
-          runs in-browser
         </span>
       )}
     </div>
