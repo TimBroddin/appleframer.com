@@ -3,7 +3,12 @@ import { createFile, MP4BoxBuffer, MultiBufferStream } from 'mp4box';
 import type { AudioSampleEntry, ISOFile, Sample, Track, VisualSampleEntry } from 'mp4box';
 import type { DeviceFrame } from '../hooks/useFrames';
 import { renderFrameToCanvas } from './renderFrame';
-import { assertVideoSupported, H264_CODEC, VIDEO_UNSUPPORTED_MESSAGE } from './videoSupport';
+import {
+  assertVideoSupported,
+  encodableOutputSize,
+  H264_CODEC,
+  VIDEO_SIZE_UNSUPPORTED_MESSAGE,
+} from './videoSupport';
 
 export interface VideoInfo {
   width: number;
@@ -827,16 +832,19 @@ export async function renderVideoToBlob(
   // this — see timestampBase.
   const base = timestampBase(demuxed.start, audio?.start);
 
-  // Output is sized to the device bezel, not the source video — the same rule
-  // stills follow. The size is not known until the first composite runs, since
-  // it comes from the frame PNG's own dimensions, so the encoder and muxer are
-  // configured lazily on the first frame rather than from a primed canvas.
+  // Compositing happens at the device bezel's full resolution — the same rule
+  // stills follow — but unlike a PNG that is not what gets encoded. H.264 caps
+  // a frame at 8192 macroblocks, which almost every bezel exceeds, so the
+  // composite is scaled down on the way into the encoder. See
+  // encodableOutputSize. The size is not known until the first composite runs,
+  // since it comes from the frame PNG's own dimensions, so the encoder and
+  // muxer are configured lazily on the first frame rather than from a primed
+  // canvas.
   const canvas = document.createElement('canvas');
   const scratchCanvas = document.createElement('canvas');
-  // What actually reaches the encoder. Kept separate because it must be even
-  // (see below) while renderFrameToCanvas always sizes `canvas` to the frame
-  // PNG, and 16 of the shipped frames — iPhone 14 Pro and 16, several iPads —
-  // are an odd number of pixels wide or tall.
+  // What actually reaches the encoder: the composite scaled to fit the codec's
+  // limits, at even dimensions. Kept separate from `canvas` because
+  // renderFrameToCanvas always sizes that one to the frame PNG.
   const outputCanvas = document.createElement('canvas');
 
   let muxer: Muxer<ArrayBufferTarget> | undefined;
@@ -846,28 +854,48 @@ export async function renderVideoToBlob(
   let encoded = 0;
 
   const configure = async () => {
-    // H.264 requires even dimensions; odd ones are rejected outright. Cropping
-    // the last row/column rather than scaling keeps every other pixel exact.
-    const width = canvas.width - (canvas.width % 2);
-    const height = canvas.height - (canvas.height % 2);
+    // The composite is scaled to the largest size the codec will accept at this
+    // aspect ratio, which also guarantees both dimensions are even — H.264
+    // rejects odd ones outright.
+    //
+    // This replaces an earlier one-pixel CROP that existed only to make odd
+    // frames even. Cropping is now neither sufficient nor necessary:
+    // insufficient because evenness was never the binding constraint (the
+    // 1600x2800 iPhone 8 Plus bezel is already even and still rejected, at 17500
+    // macroblocks against a budget of 8192), and unnecessary because scaling
+    // produces even dimensions on its own. Nothing is lost by dropping it — the
+    // cropped row/column was measured fully transparent on all 16 odd frames,
+    // and it is now resampled rather than discarded.
+    const { width, height } = encodableOutputSize(canvas.width, canvas.height);
     outputCanvas.width = width;
     outputCanvas.height = height;
 
     outputCtx = outputCanvas.getContext('2d') ?? undefined;
     if (!outputCtx) throw new Error('No output canvas context');
 
-    // The early gate ran at a default size before the frame was known. The real
-    // output is the frame PNG's size, which is much larger — iPad Pro 12.9 is
-    // 2288x2973 — and some hardware encoders reject sizes above their supported
-    // profile. Asking now, rather than letting configure() throw, keeps the
-    // refusal a clear message instead of a codec error raised after the whole
-    // file has already been demuxed.
+    // Smoothing for the DOWNSCALE, deliberately unlike the composite step,
+    // which disables it because interpolation bleeds screenshot pixels past the
+    // mask in Safari. That risk does not apply here: this resamples an
+    // already-finished frame, where nearest-neighbour would alias the bezel's
+    // curves and text badly. Same reasoning and same setting as
+    // renderFramePreview's downscale pass.
+    //
+    // Set after the resize above, which resets all context state.
+    outputCtx.imageSmoothingEnabled = true;
+    outputCtx.imageSmoothingQuality = 'high';
+
+    // The early gate ran before the frame was known, and only proves WebCodecs
+    // works at all. This asks about the size actually being encoded. It should
+    // now always pass, since encodableOutputSize targets the codec's own limit,
+    // so reaching the throw means a browser whose real limit is lower than
+    // level 4.0's — asking is what keeps that a clear message rather than a
+    // codec error raised after the whole file has already been demuxed.
     const { supported } = await VideoEncoder.isConfigSupported({
       codec: H264_CODEC,
       width,
       height,
     });
-    if (!supported) throw new Error(VIDEO_UNSUPPORTED_MESSAGE);
+    if (!supported) throw new Error(VIDEO_SIZE_UNSUPPORTED_MESSAGE);
 
     muxer = new Muxer({
       target: new ArrayBufferTarget(),
@@ -949,9 +977,9 @@ export async function renderVideoToBlob(
         }
         await awaitEncoderCapacity(encoder!);
 
-        // Copy into the even-sized canvas. Encoding the composite canvas
-        // directly would hand the encoder a frame whose size disagrees with its
-        // configured size on every odd-dimension device frame.
+        // Scale the composite into the encoder-sized canvas. Encoding `canvas`
+        // directly would hand the encoder a frame far larger than its
+        // configured size, which is the whole bug this sizing exists to fix.
         //
         // Cleared first because drawImage composites source-over onto whatever
         // is already there. renderFrameToCanvas clears its own canvas but only
@@ -960,7 +988,7 @@ export async function renderVideoToBlob(
         // would otherwise retain frame N-1 — the same ghosting the scratch
         // canvas hit one layer in. H.264 has no alpha, so it bakes in.
         outputCtx!.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
-        outputCtx!.drawImage(canvas, 0, 0);
+        outputCtx!.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height);
 
         // A second VideoFrame, wrapping the composited canvas. It is closed in
         // the same breath it is encoded: encode() copies what it needs
@@ -979,9 +1007,19 @@ export async function renderVideoToBlob(
 
         // The first composite doubles as the item's still preview, so a card
         // has something framed to show through a minute-long encode instead of
-        // the raw recording. Read from outputCanvas because the next iteration
-        // clears and overwrites it, and AFTER encode() so a frame the encoder
-        // rejects never becomes the preview for a video that will not finish.
+        // the raw recording. Read AFTER encode() so a frame the encoder rejects
+        // never becomes the preview for a video that will not finish.
+        //
+        // Deliberately the SCALED outputCanvas rather than the full-resolution
+        // composite, on two grounds. It is what the user is actually going to
+        // get — a preview that showed more detail than the exported MP4 would
+        // misrepresent the deliverable, and this preview is also what the zoom
+        // overlay and the single view enlarge, which is exactly where an honest
+        // resolution matters. And the card displays it at ~180px, so the extra
+        // pixels would be discarded after inflating a data URL that crosses
+        // into React state. Reading outputCanvas is also required for
+        // correctness regardless: the next iteration clears and overwrites it,
+        // so the read has to happen here either way.
         //
         // toDataURL is synchronous, so this cannot interleave with the frame
         // loop, the frame lifetimes above, or the encoder backpressure below —

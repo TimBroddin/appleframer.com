@@ -140,6 +140,25 @@ const Card = memo(function Card({
               so show the status alone rather than "Detecting… · detecting…". */}
           {item.frame ? `${frameLabel(item.frame)} · ${statusText}` : statusText}
         </div>
+        {/* The reason, not just the fact. "failed" alone left the user with
+            nothing to act on and no way to tell an unsupported codec from a
+            browser limitation — diagnosing the encoder-size bug took browser
+            instrumentation precisely because this message existed but was
+            never rendered anywhere.
+
+            Wrapped rather than truncated: these messages end in the actionable
+            half ("Use Chrome, Edge…", "Try a different device"), so clipping
+            them would cut off the only part worth reading. Capped at three
+            lines so one long message cannot stretch a card out of the grid,
+            with the full text in `title` for the rare overflow. */}
+        {item.status === 'error' && item.error && (
+          <p
+            className="mt-1.5 line-clamp-3 font-mono text-2xs leading-snug text-danger"
+            title={item.error}
+          >
+            {item.error}
+          </p>
+        )}
       </div>
 
       {/* Stretched over the whole card so clicking anywhere selects. */}

@@ -159,6 +159,16 @@ const SinglePreview = ({
               : item.status !== 'done' && ` · ${item.status}`}
           </span>
         </div>
+        {/* The failure reason, in the one view dedicated to a single item.
+            The status line above says only "error", which tells the user that
+            something went wrong but never what — and the Download button is
+            disabled with no explanation. Constrained in width so a long message
+            wraps into a readable column instead of stretching the pane. */}
+        {item.status === 'error' && item.error && (
+          <p className="max-w-md text-center font-mono text-xs-plus leading-snug text-danger">
+            {item.error}
+          </p>
+        )}
         <button
           type="button"
           onClick={() => onDownload(item)}
