@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    width:440px; height:956px;
+    font-family:'Archivo',system-ui,sans-serif;
+    background:#f4f6f8; color:#101418;
+    display:flex; flex-direction:column;
+    -webkit-font-smoothing:antialiased;
+  }
+  .status { height:54px; display:flex; align-items:flex-end; justify-content:space-between;
+            padding:0 28px 4px; font-size:15px; font-weight:600; letter-spacing:-.01em; }
+  .status .icons { display:flex; gap:5px; align-items:center; }
+  .bar { width:17px; height:11px; border:1.5px solid #101418; border-radius:3px; position:relative; }
+  .bar::after { content:''; position:absolute; inset:1.5px; right:5px; background:#101418; border-radius:1px; }
+  .sig { display:flex; gap:2px; align-items:flex-end; }
+  .sig i { width:3px; background:#101418; border-radius:1px; display:block; }
+
+  header { padding:14px 20px 12px; display:flex; align-items:center; justify-content:space-between;
+           background:#fff; border-bottom:1px solid #dfe4ea; }
+  .brand { display:flex; align-items:center; gap:9px; }
+  .logo { width:26px; height:26px; border-radius:8px; background:#4b31d4; }
+  .brand span { font-size:17px; font-weight:700; letter-spacing:-.02em; }
+  .avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,#8f7bf0,#4b31d4); }
+
+  main { flex:1; padding:20px; display:flex; flex-direction:column; gap:16px; overflow:hidden; }
+
+  .hero { background:#4b31d4; border-radius:18px; padding:20px; color:#fff; }
+  .hero .k { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.12em;
+             text-transform:uppercase; opacity:.72; }
+  .hero .v { font-size:38px; font-weight:700; letter-spacing:-.03em; margin-top:6px; }
+  .hero .d { font-size:13px; opacity:.8; margin-top:2px; }
+  .spark { margin-top:16px; display:flex; align-items:flex-end; gap:6px; height:64px; }
+  .spark i { flex:1; background:rgba(255,255,255,.4); border-radius:4px; display:block; min-height:8px; }
+  .spark i.hi { background:#fff; }
+
+  .row { display:flex; gap:12px; }
+  .stat { flex:1; background:#fff; border:1px solid #dfe4ea; border-radius:14px; padding:14px; }
+  .stat .k { font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.1em;
+             text-transform:uppercase; color:#98a1ac; }
+  .stat .v { font-size:22px; font-weight:700; letter-spacing:-.02em; margin-top:5px; }
+  .stat .t { font-size:11px; color:#3f9160; margin-top:1px; font-weight:600; }
+
+  .list { background:#fff; border:1px solid #dfe4ea; border-radius:14px; overflow:hidden; }
+  .list h2 { font-size:13px; padding:13px 16px 9px; color:#6b7480; font-weight:600; }
+  .item { display:flex; align-items:center; gap:12px; padding:11px 16px; border-top:1px solid #eef0f4; }
+  .item .ic { width:34px; height:34px; border-radius:10px; flex:none; }
+  .item .tx { flex:1; min-width:0; }
+  .item .tx b { display:block; font-size:14px; font-weight:600; letter-spacing:-.01em; }
+  .item .tx small { display:block; font-size:12px; color:#98a1ac; margin-top:1px; }
+  .item .amt { font-size:14px; font-weight:700; letter-spacing:-.01em; }
+
+  nav { height:74px; background:#fff; border-top:1px solid #dfe4ea;
+        display:flex; align-items:flex-start; padding-top:12px; }
+  nav div { flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;
+            font-size:10px; color:#98a1ac; font-weight:600; }
+  nav div.on { color:#4b31d4; }
+  nav .g { width:21px; height:21px; border-radius:6px; background:#c8d0da; }
+  nav div.on .g { background:#4b31d4; }
+  .home { height:34px; display:flex; align-items:center; justify-content:center; background:#fff; }
+  .home i { width:140px; height:5px; border-radius:99px; background:#101418; display:block; }
+</style>
+</head>
+<body>
+  <div class="status">
+    <span>9:41</span>
+    <span class="icons">
+      <span class="sig"><i style="height:4px"></i><i style="height:6px"></i><i style="height:8px"></i><i style="height:10px"></i></span>
+      <span class="bar"></span>
+    </span>
+  </div>
+
+  <header>
+    <div class="brand"><span class="logo"></span><span>Overview</span></div>
+    <span class="avatar"></span>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="k">this month</div>
+      <div class="v">1,284</div>
+      <div class="d">downloads &middot; up 24%</div>
+      <div class="spark">
+        <i style="height:34%"></i><i style="height:52%"></i><i style="height:41%"></i>
+        <i style="height:66%"></i><i style="height:58%"></i><i style="height:79%"></i>
+        <i class="hi" style="height:100%"></i>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="stat"><div class="k">rating</div><div class="v">4.8</div><div class="t">+0.2</div></div>
+      <div class="stat"><div class="k">reviews</div><div class="v">312</div><div class="t">+18</div></div>
+    </div>
+
+    <div class="list">
+      <h2>Recent</h2>
+      <div class="item">
+        <span class="ic" style="background:linear-gradient(135deg,#7c67f0,#4b31d4)"></span>
+        <span class="tx"><b>Version 2.4</b><small>Released &middot; 2 days ago</small></span>
+        <span class="amt">+412</span>
+      </div>
+      <div class="item">
+        <span class="ic" style="background:linear-gradient(135deg,#f0a267,#d4762f)"></span>
+        <span class="tx"><b>Featured</b><small>App Store &middot; 5 days ago</small></span>
+        <span class="amt">+286</span>
+      </div>
+      <div class="item">
+        <span class="ic" style="background:linear-gradient(135deg,#67c9f0,#2f8fd4)"></span>
+        <span class="tx"><b>Press mention</b><small>MacStories &middot; 1 week</small></span>
+        <span class="amt">+153</span>
+      </div>
+      <div class="item">
+        <span class="ic" style="background:linear-gradient(135deg,#8ad9a4,#3f9160)"></span>
+        <span class="tx"><b>Localisation</b><small>7 languages &middot; 2 weeks</small></span>
+        <span class="amt">+98</span>
+      </div>
+    </div>
+
+    <div class="list">
+      <h2>Top countries</h2>
+      <div class="item">
+        <span class="ic" style="background:#eef0f4"></span>
+        <span class="tx"><b>United States</b><small>38% of downloads</small></span>
+        <span class="amt">488</span>
+      </div>
+      <div class="item">
+        <span class="ic" style="background:#eef0f4"></span>
+        <span class="tx"><b>Germany</b><small>14% of downloads</small></span>
+        <span class="amt">180</span>
+      </div>
+      <div class="item">
+        <span class="ic" style="background:#eef0f4"></span>
+        <span class="tx"><b>Japan</b><small>11% of downloads</small></span>
+        <span class="amt">141</span>
+      </div>
+    </div>
+  </main>
+
+  <nav>
+    <div class="on"><span class="g"></span>Home</div>
+    <div><span class="g"></span>Stats</div>
+    <div><span class="g"></span>Apps</div>
+    <div><span class="g"></span>More</div>
+  </nav>
+  <div class="home"><i></i></div>
+</body>
+</html>

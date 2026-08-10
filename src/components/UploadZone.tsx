@@ -127,48 +127,41 @@ const UploadZone = ({ onFilesSelected }: UploadZoneProps) => {
  * The right-hand side composites the actual frame asset over the same image the
  * left side shows, so it is a genuine example rather than an illustration.
  */
+/**
+ * Both images are real: a screenshot at true iPhone 16 Pro Max dimensions
+ * (1320x2868), and that same file after being run through this tool, frame
+ * asset and all. The "after" is literally the app's own output rather than a
+ * drawing of it.
+ *
+ * items-end aligns the two devices on a shared baseline so the captions line up
+ * despite the different heights.
+ */
 const BeforeAfter = () => (
-  // items-end aligns the two devices on a shared baseline, so their captions
-  // line up despite the different heights.
   <div className="flex items-end gap-5 sm:gap-8" aria-hidden="true">
-    {/* Deliberately smaller and squared-off: it has to read as a bare file, so
-        the framed version beside it lands as an obvious upgrade. */}
+    {/* Smaller and squared-off, so it reads as a bare file next to the framed
+        version rather than as a second phone. */}
     <div className="flex flex-col items-center gap-2.5">
-      <div className="relative h-[118px] w-[55px] overflow-hidden rounded-[2px] ring-1 ring-hairline sm:h-[142px] sm:w-[67px]">
-        <SampleShot />
-      </div>
+      <img
+        src="/hero-screenshot.png"
+        alt=""
+        width={134}
+        height={291}
+        className="h-[118px] w-auto rounded-[2px] ring-1 ring-hairline sm:h-[142px]"
+      />
       <span className="font-mono text-2xs text-ink-faint">your screenshot</span>
     </div>
 
     <ArrowRight className="mb-10 h-5 w-5 flex-none text-ink-faint" />
 
     <div className="flex flex-col items-center gap-2.5">
-      <div className="relative h-[176px] w-[87px] sm:h-[212px] sm:w-[105px]">
-        {/* The screenshot sits under the frame, inset to the screen area. */}
-        <div className="absolute inset-[4.5%_5.5%] overflow-hidden rounded-[10px] sm:rounded-[13px]">
-          <SampleShot />
-        </div>
-        <img
-          src="/frames/iPhone/16/Pro-Max/iPhone 16 Pro Max Portrait.png"
-          alt=""
-          className="absolute inset-0 h-full w-full object-contain"
-          loading="eager"
-        />
-      </div>
+      <img
+        src="/hero-framed.png"
+        alt=""
+        width={210}
+        height={436}
+        className="h-[176px] w-auto sm:h-[212px]"
+      />
       <span className="font-mono text-2xs text-accent">what you get</span>
-    </div>
-  </div>
-);
-
-/** A stand-in app screenshot, drawn in CSS so it costs no extra request. */
-const SampleShot = () => (
-  <div className="h-full w-full bg-gradient-to-b from-accent to-accent-deep">
-    <div className="flex h-full w-full flex-col gap-[7%] p-[9%]">
-      <div className="h-[6%] w-[55%] rounded-full bg-white/85" />
-      <div className="h-[22%] w-full rounded-[6px] bg-white/25" />
-      <div className="h-[4%] w-[70%] rounded-full bg-white/45" />
-      <div className="h-[4%] w-[45%] rounded-full bg-white/45" />
-      <div className="mt-auto h-[9%] w-full rounded-full bg-white/85" />
     </div>
   </div>
 );
@@ -183,35 +176,20 @@ const FEATURES: Array<{ title: string; body: string }> = [
     body: 'Drop in every screenshot at once, mixed devices and all, and download them as a ZIP.',
   },
   {
+    title: 'Every current Apple device',
+    body: 'iPhone 8 through 17, iPhone Air and the SE; iPad Pro, Air, mini and the base model; Apple Watch Series and Ultra — portrait and landscape.',
+  },
+  {
     title: 'Stays on your machine',
-    body: 'There is no server to upload to. The framing happens in your browser.',
+    body: 'There is no server to upload to. The framing happens in your browser, so unreleased work never leaves your laptop.',
   },
   {
-    title: 'Free, no account',
-    body: 'No sign-up, no watermark, no limit on exports. Source is on GitHub, MIT licensed.',
-  },
-];
-
-const FAQ: Array<{ q: string; a: string }> = [
-  {
-    q: 'Which devices can I frame?',
-    a: 'iPhone 8 through 17, iPhone Air and the SE; iPad Pro, Air, mini and the base model; Apple Watch Series and Ultra. Landscape too, where Apple ships it.',
+    title: 'No account, no watermark',
+    body: 'Nothing to sign up for and no limit on how much you export.',
   },
   {
-    q: 'Does it do Android phones?',
-    a: 'No — Apple devices only. There are no Android or Google Play frames.',
-  },
-  {
-    q: 'Why is my screenshot not recognised?',
-    a: 'Devices are matched on exact pixel dimensions, so a resized or cropped image will not match. Use the file straight from the device or simulator, or pick the device yourself in the panel on the right.',
-  },
-  {
-    q: 'Do I have to use frames on the App Store?',
-    a: 'No, Apple takes bare screenshots. Frames are just a presentation choice.',
-  },
-  {
-    q: 'Do my screenshots get uploaded?',
-    a: 'No. They are read from your disk, drawn onto a canvas, and saved again. Nothing leaves the browser.',
+    title: 'Open source',
+    body: 'MIT licensed and on GitHub, so you can read exactly what it does with your images.',
   },
 ];
 
@@ -225,7 +203,7 @@ const LandingContent = () => (
     <div className="mx-auto flex max-w-3xl flex-col gap-12">
       <section className="flex flex-col gap-3">
         <h2 className="m-0 text-xl font-bold tracking-[-0.02em] text-ink">
-          Free device frames for App Store screenshots
+          Device frames for App Store screenshots
         </h2>
         <p className="m-0 text-[15px] leading-relaxed text-ink-soft">
           A screenshot on its own is just a rectangle. Put it in the phone it
@@ -272,35 +250,6 @@ const LandingContent = () => (
         </ol>
       </section>
 
-      <section className="flex flex-col gap-5">
-        <h2 className="m-0 text-xl font-bold tracking-[-0.02em] text-ink">
-          Frequently asked questions
-        </h2>
-        {/* Generated from the same FAQ array the page renders, so the rich
-            result can never drift from the visible answers. */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              '@context': 'https://schema.org',
-              '@type': 'FAQPage',
-              mainEntity: FAQ.map((entry) => ({
-                '@type': 'Question',
-                name: entry.q,
-                acceptedAnswer: { '@type': 'Answer', text: entry.a },
-              })),
-            }),
-          }}
-        />
-        <div className="flex flex-col gap-5">
-          {FAQ.map((entry) => (
-            <div key={entry.q} className="flex flex-col gap-1.5">
-              <h3 className="m-0 text-[15px] font-semibold text-ink">{entry.q}</h3>
-              <p className="m-0 text-[14px] leading-relaxed text-ink-soft">{entry.a}</p>
-            </div>
-          ))}
-        </div>
-      </section>
     </div>
   </div>
 );

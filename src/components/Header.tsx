@@ -25,7 +25,13 @@ const Header = ({
   <header className="flex h-[54px] flex-none items-center justify-between border-b border-hairline bg-surface px-5">
     <div className="flex min-w-0 items-center gap-2.5">
       <a href="/" className="flex items-center gap-2.5">
-        <span className="h-[22px] w-[22px] flex-none rounded-md bg-accent" />
+        <img
+          src="/icon.svg"
+          alt=""
+          width={22}
+          height={22}
+          className="h-[22px] w-[22px] flex-none rounded-md"
+        />
         <span className="text-[15.5px] font-bold tracking-[-0.02em] text-ink">
           AppleFramer
         </span>
