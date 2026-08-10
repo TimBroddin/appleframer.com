@@ -134,6 +134,52 @@ export function progressFraction(encoded: number, total: number): number {
   return Math.min(1, encoded / total);
 }
 
+/**
+ * Last-resort frame duration, in microseconds, for a source that did not supply
+ * one. Derived from the track's own span rather than assumed.
+ *
+ * Every frame handed to the muxer must carry a duration: mp4-muxer rejects a
+ * null one outright ("addVideoChunkRaw's fourth argument (duration) must be a
+ * non-negative real number"), which is what took Firefox and WebKit down. A
+ * VideoFrame does not inherit a duration from the canvas it wraps, so one has
+ * to be supplied explicitly, and the decoded source frame is the right place to
+ * get it — but `duration` is nullable in the WebCodecs IDL and a container with
+ * a damaged `stts` can yield a zero, so a fallback is still required.
+ *
+ * A fixed 1/30s would be wrong here, and specifically wrong for the sources
+ * this app exists to frame. Screen recordings are variable frame rate: a real
+ * iPhone simulator capture measures `r_frame_rate=600/1` with per-frame gaps
+ * ranging from 3.3ms to 298ms, because the simulator only emits a frame when
+ * the screen actually changes. Stamping 33.3ms on all of them would rewrite a
+ * 4.19s recording as 67/30 = 2.2s of video.
+ *
+ * So the fallback is the track's MEAN frame duration — its real elapsed span
+ * divided by its real frame count — which is the best single estimate available
+ * without inventing timing the source never had, and which by construction
+ * reproduces the source's total duration even when individual gaps are
+ * irregular. `span` is measured from the first to the last timestamp, so it
+ * covers count-1 intervals.
+ *
+ * Falls back in turn to 1/30s only when the track is too degenerate to measure
+ * (a single frame, or a zero/negative span). That constant is safe precisely
+ * because it can no longer stretch a whole video: it applies to at most a frame
+ * whose neighbours gave nothing to measure, and 30fps is the rate the rest of
+ * this file already assumes for estimation. Never returns 0, negative, or NaN —
+ * those are exactly the values the muxer refuses.
+ */
+export const FALLBACK_FRAME_DURATION_US = Math.round(1e6 / 30);
+
+export function averageFrameDuration(span: number, frameCount: number): number {
+  if (!Number.isFinite(span) || !Number.isFinite(frameCount)) return FALLBACK_FRAME_DURATION_US;
+  // count-1 intervals separate count frames; anything less cannot be measured.
+  const intervals = frameCount - 1;
+  if (intervals < 1 || span <= 0) return FALLBACK_FRAME_DURATION_US;
+  const mean = Math.round(span / intervals);
+  // A span shorter than the frame count rounds to zero, which the muxer rejects
+  // just as hard as null.
+  return mean > 0 ? mean : FALLBACK_FRAME_DURATION_US;
+}
+
 /** A track edit-list entry, as mp4box parses it. */
 export interface TrackEdit {
   segment_duration: number;
@@ -318,6 +364,49 @@ async function canDecodeAudio(config: AudioDecoderConfig): Promise<boolean> {
     // it cannot even parse, which is exactly what a PCM or exotic track hits.
     return false;
   }
+}
+
+/**
+ * Whether AudioEncoder can produce AAC, asked before anything is built.
+ *
+ * The decoder gate above is NOT enough on its own, and the asymmetry is what
+ * broke Firefox outright. Firefox decodes AAC but does not encode it —
+ * measured, `isConfigSupported` on the exact config below returns
+ * `supported: false` there while Chromium and WebKit both return true.
+ *
+ * What made that fatal rather than merely unsupported is that `configure()`
+ * does NOT report it. Per the WebCodecs contract a config that is well-formed
+ * but unsupported is not a synchronous throw: `configure()` returns normally,
+ * `state` reads 'configured', and the NotSupportedError is delivered later on
+ * the codec's own task through the error callback. Measured in Firefox — the
+ * error lands ~300ms after a configure() that threw nothing. So the try/catch
+ * around configure() saw a healthy pipeline, the muxer went on to declare an
+ * AAC track, and the failure surfaced with the export already past the point
+ * where audio can still be dropped for free.
+ *
+ * Asking here keeps every audio-drop decision on the near side of the muxer,
+ * which is the invariant the whole pipeline is built around.
+ */
+async function canEncodeAudio(config: AudioEncoderConfig): Promise<boolean> {
+  try {
+    const { supported } = await AudioEncoder.isConfigSupported(config);
+    return supported === true;
+  } catch {
+    // Same reasoning as canDecodeAudio: a config the browser cannot even parse
+    // throws rather than answering, and that is still just "no".
+    return false;
+  }
+}
+
+/**
+ * The AudioEncoder configuration for the output track.
+ *
+ * Built in one place for the same reason the decoder config is: the pre-flight
+ * and the real configure() must be answering about the same thing, or the gate
+ * reports confidence it has not earned.
+ */
+function audioEncoderConfig(numberOfChannels: number, sampleRate: number): AudioEncoderConfig {
+  return { codec: 'mp4a.40.2', numberOfChannels, sampleRate, bitrate: 128_000 };
 }
 
 /**
@@ -570,6 +659,125 @@ async function* decodeFrames(
 const MAX_AUDIO_QUEUE = 8;
 
 /**
+ * Reads an MPEG-4 descriptor's length, which is stored as a base-128 varint
+ * with a continuation bit, optionally padded to a fixed width with 0x80 bytes.
+ *
+ * Returns the payload length and where the payload starts, or undefined if the
+ * bytes run out — a truncated descriptor must not be read past its own buffer.
+ */
+function readDescriptorLength(
+  bytes: Uint8Array,
+  offset: number
+): { length: number; start: number } | undefined {
+  let length = 0;
+  let cursor = offset;
+  // Four continuation bytes is the maximum a 32-bit length can occupy.
+  for (let i = 0; i < 4; i += 1) {
+    if (cursor >= bytes.length) return undefined;
+    const byte = bytes[cursor];
+    cursor += 1;
+    length = (length << 7) | (byte & 0x7f);
+    if ((byte & 0x80) === 0) return { length, start: cursor };
+  }
+  return undefined;
+}
+
+/**
+ * The bare AudioSpecificConfig from whatever an AudioEncoder handed back as its
+ * `decoderConfig.description`.
+ *
+ * Engines disagree about what that field contains, and the disagreement
+ * silently corrupts the output. Measured on the same 48kHz stereo AAC encode:
+ * Chromium returns the 2-byte ASC (`0x1208`) that the spec's
+ * AudioDecoderConfig.description calls for, while WebKit returns a 39-byte blob
+ * that is an entire ES_Descriptor — tag 0x03, wrapping a DecoderConfigDescriptor
+ * (tag 0x04), wrapping the DecoderSpecificInfo (tag 0x05) that holds the actual
+ * ASC.
+ *
+ * mp4-muxer writes this straight into the esds box it builds, so WebKit's blob
+ * ends up nested inside a second ES_Descriptor. The resulting track parses as
+ * "Audio object type 0 ... 0 channels" and ffprobe cannot open it at all — a
+ * declared audio track that no decoder can read, which is the same class of
+ * broken file the pipeline works so hard to avoid elsewhere.
+ *
+ * So the descriptor tree is walked and the innermost tag-5 payload returned.
+ * Anything that is not a recognisable descriptor chain is passed through
+ * unchanged: that is the Chromium case, where the description already IS the
+ * ASC and there is nothing to unwrap. Deliberately conservative — an
+ * unrecognised shape is returned as-is rather than guessed at, since a wrong
+ * guess would break the engine that was already correct.
+ */
+export function bareAudioSpecificConfig(description: Uint8Array): Uint8Array {
+  let bytes = description;
+  // ES_Descriptor -> DecoderConfigDescriptor -> DecoderSpecificInfo. Bounded by
+  // the nesting the spec actually defines rather than looping on arbitrary data.
+  for (let depth = 0; depth < 4; depth += 1) {
+    const tag = bytes[0];
+    // 0x05 is the DecoderSpecificInfo itself: its payload is the ASC, which is
+    // what we are after.
+    if (tag !== 0x03 && tag !== 0x04 && tag !== 0x05) return description;
+
+    const header = readDescriptorLength(bytes, 1);
+    if (!header) return description;
+    const body = bytes.subarray(header.start, header.start + header.length);
+    if (!body.length) return description;
+
+    if (tag === 0x05) return body;
+
+    if (tag === 0x03) {
+      // ES_Descriptor: 2-byte ES_ID then a flags byte, whose top bits mark
+      // optional fields that must be stepped over before the nested descriptor.
+      if (body.length < 3) return description;
+      let cursor = 2;
+      const flags = body[cursor];
+      cursor += 1;
+      if (flags & 0x80) cursor += 2; // streamDependenceFlag: dependsOn_ES_ID
+      if (flags & 0x40) {
+        // URL_Flag: a length-prefixed URL string.
+        if (cursor >= body.length) return description;
+        cursor += 1 + body[cursor];
+      }
+      if (flags & 0x20) cursor += 2; // OCRstreamFlag: OCR_ES_Id
+      if (cursor >= body.length) return description;
+      bytes = body.subarray(cursor);
+      continue;
+    }
+
+    // 0x04, DecoderConfigDescriptor: 13 bytes of fixed fields precede the
+    // nested DecoderSpecificInfo.
+    if (body.length <= 13) return description;
+    bytes = body.subarray(13);
+  }
+  return description;
+}
+
+/**
+ * The encoder metadata as the muxer should receive it, with the description
+ * normalised to a bare AudioSpecificConfig.
+ *
+ * Returns the original object when there is nothing to change, so the common
+ * path allocates nothing.
+ */
+function normalizeAudioMeta(meta?: EncodedAudioChunkMetadata): EncodedAudioChunkMetadata | undefined {
+  const description = meta?.decoderConfig?.description;
+  if (!description) return meta;
+  const source =
+    description instanceof Uint8Array
+      ? description
+      : new Uint8Array(
+          ArrayBuffer.isView(description)
+            ? description.buffer.slice(
+                description.byteOffset,
+                description.byteOffset + description.byteLength
+              )
+            : description
+        );
+  const bare = bareAudioSpecificConfig(source);
+  if (bare === source) return meta;
+  return { ...meta, decoderConfig: { ...meta!.decoderConfig!, description: bare } };
+}
+
+/**
  * A configured, ready-to-run audio pipeline. Its mere existence is the proof
  * that this source's audio can actually be transcoded.
  */
@@ -603,6 +811,12 @@ interface AudioPipeline {
  * without necessarily accepting the codec-specific `description`, so a real
  * `configure()` is the only honest test. Both are done here, on the same config
  * object, and a throw from either means audio is dropped rather than fatal.
+ *
+ * The converse is equally true and is the harder half: `configure()` alone is
+ * not enough either, because an unsupported codec fails ASYNCHRONOUSLY through
+ * the error callback rather than by throwing. That is why BOTH directions —
+ * decode and encode — are pre-flighted here before either codec is built. See
+ * canEncodeAudio for the Firefox failure that proved it.
  */
 async function createAudioPipeline(audio: DemuxedAudio): Promise<AudioPipeline | undefined> {
   const decoderConfig = audioDecoderConfig(audio);
@@ -612,6 +826,13 @@ async function createAudioPipeline(audio: DemuxedAudio): Promise<AudioPipeline |
 
   const numberOfChannels = decoderConfig.numberOfChannels ?? 2;
   const sampleRate = decoderConfig.sampleRate ?? 48_000;
+
+  // Being able to DECODE the source says nothing about being able to re-encode
+  // it: Firefox does the first and not the second. Asked before either codec is
+  // constructed, so a browser without an AAC encoder drops audio here — while
+  // it is still free — instead of dying after the muxer has declared the track.
+  const encoderConfig = audioEncoderConfig(numberOfChannels, sampleRate);
+  if (!(await canEncodeAudio(encoderConfig))) return undefined;
 
   let codecError: Error | undefined;
   const noteError = (error: Error) => {
@@ -632,12 +853,7 @@ async function createAudioPipeline(audio: DemuxedAudio): Promise<AudioPipeline |
       // a throw here lands on the codec's own task, past any try/catch.
       error: noteError,
     });
-    encoder.configure({
-      codec: 'mp4a.40.2',
-      numberOfChannels,
-      sampleRate,
-      bitrate: 128_000,
-    });
+    encoder.configure(encoderConfig);
 
     decoder = new AudioDecoder({
       output: (data) => pending.push(data),
@@ -698,8 +914,11 @@ async function transcodeAudio(
 
   try {
     // The muxer exists and has declared the track, so encoded chunks now have
-    // somewhere to go.
-    pipeline.setSink((chunk, meta) => muxer.addAudioChunk(chunk, meta));
+    // somewhere to go. The metadata is normalised on the way through because
+    // WebKit's encoder reports a whole ES_Descriptor where the spec asks for a
+    // bare AudioSpecificConfig, and muxing that verbatim yields an audio track
+    // no decoder can open. See bareAudioSpecificConfig.
+    pipeline.setSink((chunk, meta) => muxer.addAudioChunk(chunk, normalizeAudioMeta(meta)));
 
     // Encodes and closes everything decoded so far. Closing in a finally per
     // item means a throw from encode() — a closed queue after an abort, most
@@ -807,6 +1026,18 @@ export async function renderVideoToBlob(
   // and never feeding it produces a file that stalls on playback.
   const demuxed = await demuxVideoTrack(file);
 
+  // The source's own mean frame duration, measured across the demuxed track,
+  // held for any frame that reaches the encoder without a duration of its own.
+  // Computed from the encoded chunks because they are the complete track — the
+  // decode loop only ever sees a bounded window of it — and computed once
+  // rather than per frame. See averageFrameDuration for why a fixed 1/30s would
+  // misrepresent a variable-frame-rate screen recording.
+  const sourceChunks = demuxed.chunks;
+  const fallbackFrameDuration = averageFrameDuration(
+    sourceChunks[sourceChunks.length - 1].timestamp - sourceChunks[0].timestamp,
+    sourceChunks.length
+  );
+
   // Both audio codecs are built and configured HERE, before the muxer exists, so
   // a source whose audio cannot be transcoded is discovered while dropping it is
   // still free. Once the muxer declares an audio track there is no way back:
@@ -820,8 +1051,16 @@ export async function renderVideoToBlob(
   if (audio) {
     audioPipeline = await createAudioPipeline(audio);
     if (!audioPipeline) {
+      // Deliberately does NOT say "could not be decoded". There are two ways to
+      // land here and only one of them is a decode problem: Firefox decodes AAC
+      // perfectly well and simply cannot encode it, so blaming the source codec
+      // would send a user hunting for a fault in a recording that is fine. This
+      // wording covers both causes honestly and names the one thing that is
+      // always true — the export continues without sound.
       onAudioDropped?.(
-        new Error(`This video's audio (${audio.track.codec}) could not be decoded, so it was dropped.`)
+        new Error(
+          `This browser cannot re-encode this video's audio (${audio.track.codec}), so it was dropped and the video exported without sound.`
+        )
       );
       audio = undefined;
     }
@@ -996,8 +1235,32 @@ export async function renderVideoToBlob(
         //
         // Shifted by the same base the audio track uses, so the two stay in the
         // relationship the source had.
+        //
+        // The duration must be passed explicitly and is not optional. A
+        // VideoFrame built from a canvas has no timing of its own — it inherits
+        // nothing from the source frame it was composited from — so omitting it
+        // yields a chunk with a null duration, which mp4-muxer refuses:
+        // "addVideoChunkRaw's fourth argument (duration) must be a non-negative
+        // real number". Chromium happened to infer one and survive; Firefox and
+        // WebKit did not, and video export failed outright in both.
+        //
+        // The decoded source frame's own duration is preferred because it is the
+        // source's real timing, which for these variable-frame-rate screen
+        // recordings differs from frame to frame. It was measured populated on
+        // every frame of both test sources in all three engines; the fallback is
+        // for the nullable-by-spec case and for a container whose stts yields a
+        // zero.
+        // `> 0` rather than `?? fallback`: null is not the only bad value. A
+        // container with a damaged stts decodes to a frame whose duration is 0,
+        // which the muxer accepts (it is non-negative) and which would collapse
+        // that frame to no on-screen time at all. Both cases want the measured
+        // fallback, and NaN — the other value the muxer rejects — fails this
+        // comparison too rather than being propagated.
+        const sourceDuration = videoFrame.duration;
         const composited = new VideoFrame(outputCanvas, {
           timestamp: videoFrame.timestamp - base,
+          duration:
+            sourceDuration != null && sourceDuration > 0 ? sourceDuration : fallbackFrameDuration,
         });
         try {
           encoder!.encode(composited);

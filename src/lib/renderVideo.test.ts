@@ -1,6 +1,9 @@
 import { test, expect } from 'bun:test';
 import {
+  averageFrameDuration,
+  bareAudioSpecificConfig,
   estimateFrameCount,
+  FALLBACK_FRAME_DURATION_US,
   PROBE_FAILED_MESSAGE,
   PROBE_TIMEOUT_MS,
   progressFraction,
@@ -105,4 +108,95 @@ test('a clip that starts late rebases to zero without losing the gap', () => {
   expect(base).toBe(500000);
   expect(580000 - base).toBe(80000);
   expect(500000 - base).toBe(0);
+});
+
+// The muxer rejects a duration that is null, negative or NaN
+// ("addVideoChunkRaw's fourth argument (duration) must be a non-negative real
+// number"), and a zero collapses a frame to no on-screen time. These assert the
+// fallback can never produce any of them, which is the property that keeps
+// Firefox and WebKit encoding at all.
+
+test('the mean is measured across intervals, not frames', () => {
+  // 90 frames spanning 2.966667s at 30fps: 89 intervals of 33333us.
+  expect(averageFrameDuration(2_966_667, 90)).toBe(33333);
+});
+
+test('a variable-frame-rate source averages its real span rather than assuming 30fps', () => {
+  // The real simulator recording: 66 decoded frames across 4.118333s. The mean
+  // is ~63ms, nearly double 1/30s — stamping 33333 on these would rewrite a
+  // 4.1s recording as a 2.2s one.
+  const mean = averageFrameDuration(4_118_333, 66);
+  expect(mean).toBe(63359);
+  expect(mean).toBeGreaterThan(FALLBACK_FRAME_DURATION_US);
+  // The mean reproduces the source's own span, which is the property that makes
+  // it safe for an irregular track.
+  expect(mean * 65).toBeCloseTo(4_118_333, -3);
+});
+
+test('a track too short or too degenerate to measure falls back to 1/30s', () => {
+  expect(averageFrameDuration(0, 1)).toBe(FALLBACK_FRAME_DURATION_US);
+  expect(averageFrameDuration(1_000_000, 1)).toBe(FALLBACK_FRAME_DURATION_US);
+  expect(averageFrameDuration(0, 90)).toBe(FALLBACK_FRAME_DURATION_US);
+});
+
+test('never returns a value the muxer would reject', () => {
+  // A negative span (unordered timestamps) and NaN are the exact classes of
+  // value that made the muxer throw.
+  expect(averageFrameDuration(-5_000_000, 90)).toBe(FALLBACK_FRAME_DURATION_US);
+  expect(averageFrameDuration(NaN, 90)).toBe(FALLBACK_FRAME_DURATION_US);
+  expect(averageFrameDuration(1_000_000, NaN)).toBe(FALLBACK_FRAME_DURATION_US);
+  expect(averageFrameDuration(Infinity, 90)).toBe(FALLBACK_FRAME_DURATION_US);
+  // A span shorter than the frame count would round to zero.
+  expect(averageFrameDuration(10, 90)).toBe(FALLBACK_FRAME_DURATION_US);
+  for (const [span, count] of [[-1, 5], [0, 0], [NaN, NaN], [10, 90], [4_118_333, 66]]) {
+    const d = averageFrameDuration(span, count);
+    expect(Number.isFinite(d)).toBe(true);
+    expect(d).toBeGreaterThan(0);
+  }
+});
+
+test('the constant fallback is a real 30fps interval', () => {
+  expect(FALLBACK_FRAME_DURATION_US).toBe(33333);
+});
+
+// The two engines disagree about what AudioEncoder's decoderConfig.description
+// contains, and muxing WebKit's answer verbatim produced an audio track ffprobe
+// reported as "Audio object type 0 ... 0 channels" and could not open. Both byte
+// sequences below were captured from the real encoders on the same 48kHz stereo
+// AAC config, and both must reduce to the same AudioSpecificConfig.
+
+test("Chromium's description is already a bare AudioSpecificConfig", () => {
+  // 0x1190: AAC-LC, 48kHz, stereo. Not a descriptor chain, so it passes through
+  // untouched rather than being misread as one.
+  const asc = new Uint8Array([0x11, 0x90]);
+  expect(Array.from(bareAudioSpecificConfig(asc))).toEqual([0x11, 0x90]);
+});
+
+test("WebKit's whole ES_Descriptor is unwrapped to the same config", () => {
+  // Captured from WebKit: ES_Descriptor(0x03) > DecoderConfigDescriptor(0x04) >
+  // DecoderSpecificInfo(0x05) > 0x1190 — the identical ASC Chromium returns
+  // directly, buried 39 bytes deep.
+  const webkit = new Uint8Array(
+    ('038080802200000004808080144014001800000000000000000005808080021190068080800102'.match(
+      /../g
+    ) as string[]).map((h) => parseInt(h, 16))
+  );
+  expect(Array.from(bareAudioSpecificConfig(webkit))).toEqual([0x11, 0x90]);
+});
+
+test('an unrecognisable description is passed through rather than guessed at', () => {
+  // Returning the input identity-equal is what lets the caller skip allocating.
+  const odd = new Uint8Array([0xff, 0x00, 0x12]);
+  expect(bareAudioSpecificConfig(odd)).toBe(odd);
+  const empty = new Uint8Array([]);
+  expect(bareAudioSpecificConfig(empty)).toBe(empty);
+});
+
+test('a truncated descriptor is not read past its own buffer', () => {
+  // A descriptor claiming more bytes than it has must return the original
+  // rather than reading whatever follows it in memory.
+  const truncated = new Uint8Array([0x03, 0x82]);
+  expect(bareAudioSpecificConfig(truncated)).toBe(truncated);
+  const lying = new Uint8Array([0x05, 0x40]);
+  expect(bareAudioSpecificConfig(lying)).toBe(lying);
 });
