@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Check } from 'lucide-react';
 
 interface UploadZoneProps {
   onFilesSelected: (files: File[]) => void;
@@ -160,31 +160,38 @@ const BeforeAfter = () => (
   </div>
 );
 
-const FEATURES: Array<{ title: string; body: string }> = [
+/**
+ * Short facts, not paragraphs. Six equal-weight feature blocks read as a wall
+ * of grey; a tight list with the claim in front and the detail after scans in
+ * a fraction of the time.
+ */
+const FACTS: Array<{ claim: string; detail: string }> = [
   {
-    title: 'Picks the device for you',
-    body: 'The screenshot’s dimensions say which device it came from, so you rarely have to choose one yourself.',
+    claim: 'Picks the device for you',
+    detail: 'matched on the screenshot’s exact dimensions',
   },
   {
-    title: 'Handles a whole set',
-    body: 'Drop in every screenshot at once, mixed devices and all, and download them as a ZIP.',
+    claim: 'Takes a whole set at once',
+    detail: 'mixed devices, downloaded as one ZIP',
   },
   {
-    title: 'Every current Apple device',
-    body: 'iPhone 8 through 17, iPhone Air and the SE; iPad Pro, Air, mini and the base model; Apple Watch Series and Ultra — portrait and landscape.',
+    claim: 'iPhone, iPad and Apple Watch',
+    detail: 'iPhone 8 through 17 and Air, every current iPad, Series and Ultra',
   },
   {
-    title: 'Stays on your machine',
-    body: 'There is no server to upload to. The framing happens in your browser, so unreleased work never leaves your laptop.',
+    claim: 'Never leaves your machine',
+    detail: 'there is no server to upload to',
   },
   {
-    title: 'No account, no watermark',
-    body: 'Nothing to sign up for and no limit on how much you export.',
+    claim: 'Free, no account, no watermark',
+    detail: 'open source and MIT licensed',
   },
-  {
-    title: 'Open source',
-    body: 'MIT licensed and on GitHub, so you can read exactly what it does with your images.',
-  },
+];
+
+const STEPS = [
+  'Drop your screenshots in, or paste them from the clipboard.',
+  'Each one gets matched to a device. Change any of them in the panel on the right.',
+  'Pick a background and how files are named, then download one or the whole batch.',
 ];
 
 /**
@@ -194,43 +201,59 @@ const FEATURES: Array<{ title: string; body: string }> = [
  */
 const LandingContent = () => (
   // Scrolls within its own column so the page as a whole stays one screen tall.
-  <div className="flex flex-col gap-7 lg:w-[420px] lg:flex-none lg:overflow-y-auto lg:pr-1 xl:w-[470px]">
-    <section className="flex flex-col gap-2.5">
-      <h2 className="m-0 text-lg font-bold tracking-[-0.02em] text-ink">
-        Device frames for App Store screenshots
+  <div className="flex flex-col gap-8 lg:w-[400px] lg:flex-none lg:overflow-y-auto lg:pr-2 xl:w-[440px]">
+    <section className="flex flex-col gap-3">
+      <h2 className="m-0 text-[21px] font-bold leading-tight tracking-[-0.025em] text-ink">
+        Device frames for App&nbsp;Store screenshots
       </h2>
-      <p className="m-0 text-[14.5px] leading-relaxed text-ink-soft">
+      {/* One lead sentence at larger size carries the pitch; the supporting
+          detail drops back so the two are not competing. */}
+      <p className="m-0 text-[15.5px] leading-[1.6] text-ink">
         A screenshot on its own is just a rectangle. Put it in the phone it came
-        from and it reads as a real app. AppleFramer does that for iPhone, iPad
-        and Apple Watch, and exports a PNG with either a transparent or a solid
-        background.
+        from and it reads as a real app.
+      </p>
+      <p className="m-0 text-[14px] leading-relaxed text-ink-soft">
+        AppleFramer does that for iPhone, iPad and Apple Watch, and exports a PNG
+        on a transparent or solid background.
       </p>
     </section>
 
-    <ol className="m-0 flex list-none flex-col gap-2.5 p-0">
-      {[
-        'Drop your screenshots in, or paste them from the clipboard.',
-        'Each one gets matched to a device. Change any of them in the panel on the right.',
-        'Pick a background and how files are named, then download one or the whole batch.',
-      ].map((step, index) => (
-        <li key={step} className="flex gap-2.5 text-[14px] leading-relaxed text-ink-soft">
-          <span className="flex h-5 w-5 flex-none items-center justify-center rounded-full bg-accent-wash font-mono text-2xs font-semibold text-accent-deep">
-            {index + 1}
-          </span>
-          {step}
-        </li>
-      ))}
-    </ol>
+    <section className="flex flex-col gap-3.5">
+      <h3 className="m-0 font-mono text-2xs uppercase tracking-[0.14em] text-ink-faint">
+        How it works
+      </h3>
+      <ol className="m-0 flex list-none flex-col gap-3 p-0">
+        {STEPS.map((step, index) => (
+          <li
+            key={step}
+            className="flex gap-3 text-[14px] leading-relaxed text-ink-soft"
+          >
+            <span className="mt-px flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full bg-accent font-mono text-2xs font-semibold text-white">
+              {index + 1}
+            </span>
+            <span className="pt-0.5">{step}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
 
-    <section className="grid gap-x-6 gap-y-4 border-t border-hairline pt-6 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-      {FEATURES.map((feature) => (
-        <div key={feature.title} className="flex flex-col gap-1">
-          <h3 className="m-0 text-[14px] font-semibold text-ink">{feature.title}</h3>
-          <p className="m-0 text-[13.5px] leading-relaxed text-ink-soft">
-            {feature.body}
-          </p>
-        </div>
-      ))}
+    {/* A checked list rather than six paragraphs: the claim reads first, the
+        detail sits behind it in lighter type for anyone who wants it. */}
+    <section className="flex flex-col gap-3 border-t border-hairline pt-6">
+      <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+        {FACTS.map((fact) => (
+          <li key={fact.claim} className="flex gap-2.5">
+            <Check
+              className="mt-[3px] h-3.5 w-3.5 flex-none text-accent"
+              strokeWidth={3}
+            />
+            <span className="text-[14px] leading-snug">
+              <span className="font-semibold text-ink">{fact.claim}</span>
+              <span className="text-ink-faint"> — {fact.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
     </section>
   </div>
 );
