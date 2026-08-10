@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { QueueItem, frameLabelDetailed } from '../lib/queue';
 import { renderFrameToBlob } from '../lib/renderFrame';
 
@@ -7,6 +7,13 @@ interface ZoomOverlayProps {
   item: QueueItem;
   backgroundColor: string | null;
   onClose: () => void;
+  /**
+   * The images to step through, in the order they appear on screen. Grouping
+   * reorders the sheet, so this must be the display order rather than the raw
+   * queue, otherwise the arrows jump around unpredictably.
+   */
+  siblings?: QueueItem[];
+  onNavigate?: (id: string) => void;
 }
 
 /**
@@ -17,16 +24,41 @@ interface ZoomOverlayProps {
  * resolution on open rather than upscaling a thumbnail. The preview stands in
  * until that finishes, which keeps the overlay instant.
  */
-const ZoomOverlay = ({ item, backgroundColor, onClose }: ZoomOverlayProps) => {
+const ZoomOverlay = ({
+  item,
+  backgroundColor,
+  onClose,
+  siblings,
+  onNavigate,
+}: ZoomOverlayProps) => {
   const [fullUrl, setFullUrl] = useState<string | null>(null);
+
+  // Memoised so the fallback array doesn't get a new identity each render,
+  // which would rebuild the step callback and its key listener every time.
+  const list = useMemo(() => siblings ?? [], [siblings]);
+  const position = list.findIndex((entry) => entry.id === item.id);
+  // Wrap around: with a batch open, stepping past the last image should return
+  // to the first rather than dead-ending.
+  const canNavigate = Boolean(onNavigate) && list.length > 1 && position !== -1;
+
+  const step = useCallback(
+    (delta: number) => {
+      if (!canNavigate || !onNavigate) return;
+      const next = (position + delta + list.length) % list.length;
+      onNavigate(list[next].id);
+    },
+    [canNavigate, onNavigate, position, list]
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
+      else if (event.key === 'ArrowRight') step(1);
+      else if (event.key === 'ArrowLeft') step(-1);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [onClose, step]);
 
   useEffect(() => {
     if (!item.frame) return;
@@ -67,6 +99,33 @@ const ZoomOverlay = ({ item, backgroundColor, onClose }: ZoomOverlayProps) => {
         <X className="h-6 w-6 text-white" />
       </button>
 
+      {canNavigate && (
+        <>
+          <button
+            type="button"
+            aria-label="Previous image"
+            onClick={(event) => {
+              event.stopPropagation();
+              step(-1);
+            }}
+            className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 transition-colors hover:bg-white/20"
+          >
+            <ChevronLeft className="h-6 w-6 text-white" />
+          </button>
+          <button
+            type="button"
+            aria-label="Next image"
+            onClick={(event) => {
+              event.stopPropagation();
+              step(1);
+            }}
+            className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 transition-colors hover:bg-white/20"
+          >
+            <ChevronRight className="h-6 w-6 text-white" />
+          </button>
+        </>
+      )}
+
       <img
         src={fullUrl ?? item.previewUrl}
         alt={item.file.name}
@@ -74,8 +133,15 @@ const ZoomOverlay = ({ item, backgroundColor, onClose }: ZoomOverlayProps) => {
         onClick={(event) => event.stopPropagation()}
       />
 
-      <div className="font-mono text-xs-plus text-white/60">
-        {item.file.name} · {frameLabelDetailed(item.frame)}
+      <div className="flex items-center gap-2.5 font-mono text-xs-plus text-white/60">
+        {canNavigate && (
+          <span className="text-white/40">
+            {position + 1} / {list.length}
+          </span>
+        )}
+        <span>
+          {item.file.name} · {frameLabelDetailed(item.frame)}
+        </span>
       </div>
     </div>
   );

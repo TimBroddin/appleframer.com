@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Download } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { QueueItem, frameLabelDetailed } from '../lib/queue';
 import { renderFramePreview } from '../lib/renderFrame';
 import ZoomOverlay from './ZoomOverlay';
@@ -8,6 +8,10 @@ interface SinglePreviewProps {
   item: QueueItem | undefined;
   backgroundColor: string | null;
   onDownload: (item: QueueItem) => void;
+  /** Every image, in display order, for stepping through the batch. */
+  siblings: QueueItem[];
+  /** Moves the selection, since this view shows whatever is selected. */
+  onNavigate: (id: string) => void;
 }
 
 /**
@@ -15,9 +19,42 @@ interface SinglePreviewProps {
  * compositing of its own — the render queue has already produced the preview,
  * so this just displays it. That keeps a single rendering code path.
  */
-const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps) => {
+const SinglePreview = ({
+  item,
+  backgroundColor,
+  onDownload,
+  siblings,
+  onNavigate,
+}: SinglePreviewProps) => {
   const [zoomed, setZoomed] = useState(false);
   const [largeUrl, setLargeUrl] = useState<string | null>(null);
+
+  const position = siblings.findIndex((entry) => entry.id === item?.id);
+  const canNavigate = siblings.length > 1 && position !== -1;
+
+  const step = useCallback(
+    (delta: number) => {
+      if (!canNavigate) return;
+      const next = (position + delta + siblings.length) % siblings.length;
+      onNavigate(siblings[next].id);
+    },
+    [canNavigate, position, siblings, onNavigate]
+  );
+
+  // Arrow keys move through the batch, but not while the zoom overlay is open —
+  // it binds the same keys and would otherwise advance two images at once.
+  useEffect(() => {
+    if (zoomed || !canNavigate) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      // Don't hijack arrows while typing in the inspector's fields.
+      if (target && (target.tagName === 'INPUT' || target.isContentEditable)) return;
+      if (event.key === 'ArrowRight') step(1);
+      else if (event.key === 'ArrowLeft') step(-1);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [zoomed, canNavigate, step]);
 
   // Reset zoom when switching images so it doesn't linger on the wrong one.
   useEffect(() => setZoomed(false), [item?.id]);
@@ -64,11 +101,32 @@ const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps
     // fraction of the viewport.
     <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-4 p-6">
       <div
-        className={`flex min-h-0 w-full flex-1 items-center justify-center rounded-2xl p-4 ${
+        className={`relative flex min-h-0 w-full flex-1 items-center justify-center rounded-2xl p-4 ${
           backgroundColor ? '' : 'bg-checker'
         }`}
         style={backgroundColor ? { background: backgroundColor } : undefined}
       >
+        {canNavigate && (
+          <>
+            <button
+              type="button"
+              aria-label="Previous image"
+              onClick={() => step(-1)}
+              className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-hairline bg-surface/90 p-2 text-ink-soft shadow-card backdrop-blur transition-colors hover:text-accent"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next image"
+              onClick={() => step(1)}
+              className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-hairline bg-surface/90 p-2 text-ink-soft shadow-card backdrop-blur transition-colors hover:text-accent"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </>
+        )}
+
         <img
           src={ready ? displayUrl : item.sourceUrl}
           alt={item.file.name}
@@ -80,9 +138,16 @@ const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps
       </div>
 
       <div className="flex flex-none flex-col items-center gap-2">
-        <div className="font-mono text-xs-plus text-ink-soft">
-          {item.file.name} · {frameLabelDetailed(item.frame)}
-          {item.status !== 'done' && ` · ${item.status}`}
+        <div className="flex items-center gap-2.5 font-mono text-xs-plus text-ink-soft">
+          {canNavigate && (
+            <span className="text-ink-faint">
+              {position + 1} / {siblings.length}
+            </span>
+          )}
+          <span>
+            {item.file.name} · {frameLabelDetailed(item.frame)}
+            {item.status !== 'done' && ` · ${item.status}`}
+          </span>
         </div>
         <button
           type="button"
@@ -99,6 +164,12 @@ const SinglePreview = ({ item, backgroundColor, onDownload }: SinglePreviewProps
         <ZoomOverlay
           item={item}
           backgroundColor={backgroundColor}
+          // Zooming can only show rendered images, and navigating here moves
+          // the selection so the view behind the overlay stays in step.
+          siblings={siblings.filter(
+            (entry) => entry.status === 'done' && entry.previewUrl
+          )}
+          onNavigate={onNavigate}
           onClose={() => setZoomed(false)}
         />
       )}

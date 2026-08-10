@@ -190,6 +190,21 @@ const ScreenshotFramer = ({
     [items, zoomedId]
   );
 
+  /**
+   * Items in the order they appear on screen. Grouping reorders the sheet, so
+   * using the raw queue would make the arrows jump between groups.
+   */
+  const orderedItems = useMemo(
+    () => displayOrder(items, groupByDevice),
+    [items, groupByDevice]
+  );
+
+  // The zoom overlay only shows rendered images, so it skips the rest.
+  const zoomableItems = useMemo(
+    () => orderedItems.filter((item) => item.status === 'done' && item.previewUrl),
+    [orderedItems]
+  );
+
   // Read through a ref so the handler identity is stable: it is passed to every
   // memoised Card, and a new function each render would defeat the memo.
   const itemsRef = useRef(items);
@@ -450,6 +465,8 @@ const ScreenshotFramer = ({
             item={selectedItems[0] ?? items[0]}
             backgroundColor={backgroundColor}
             onDownload={handleDownloadSingle}
+            siblings={orderedItems}
+            onNavigate={(id) => setSelectedIds(new Set([id]))}
           />
         )}
 
@@ -488,6 +505,8 @@ const ScreenshotFramer = ({
         <ZoomOverlay
           item={zoomedItem}
           backgroundColor={backgroundColor}
+          siblings={zoomableItems}
+          onNavigate={setZoomedId}
           onClose={() => setZoomedId(null)}
         />
       )}
