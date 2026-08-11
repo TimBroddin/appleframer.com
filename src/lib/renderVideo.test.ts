@@ -9,7 +9,9 @@ import {
   progressFraction,
   timestampBase,
   trackEditWindow,
+  trackRotation,
   trackTimeShift,
+  VIDEO_TRANSPARENT_FALLBACK,
 } from './renderVideo';
 
 test('frame count is duration times rate', () => {
@@ -112,6 +114,18 @@ test('a trimming edit ends where its segment does, so cut footage stays cut', ()
   expect(window.end).toBe(2_066_000);
 });
 
+test('an edit starting inside its media reports where the output begins', () => {
+  // The round-3 failure: an edit selecting media 2s..4s. `start` is what the
+  // encoder drops against, and reading it as 0 is what handed the user back the
+  // two seconds they trimmed off the front — 3.933s / 118 frames against
+  // ffmpeg's 2.000s / 60. The window is measured on the SHIFTED timeline, where
+  // the shift has already moved the first selected sample to zero, so with no
+  // empty edit ahead of it the start is 0 and the end is the segment duration.
+  const window = trackEditWindow([{ segment_duration: 2000, media_time: 30720 }], 1000);
+  expect(window.start).toBe(0);
+  expect(window.end).toBe(2_000_000);
+});
+
 test('an edit covering its whole media cuts nothing', () => {
   // The ordinary encoder-delay edit list every recording carries. If this ever
   // starts cutting, untrimmed exports lose their final frames.
@@ -147,6 +161,48 @@ test('only the first real edit is honoured, so a cut list degrades to a prefix',
     1000
   );
   expect(window.end).toBe(1_000_000);
+});
+
+// Every matrix below was read off a real file with mp4box. The DEGREES asserted
+// are the canvas counter-turn that lands the frame upright, which is the
+// opposite sign to ffprobe's label for the same file — ffprobe describes the
+// rotation baked into the stored pixels, and undoing it turns the other way.
+// Established by exporting each fixture and looking at the result, not derived:
+// the first attempt trusted ffprobe's sign and produced upside-down video.
+const IDENTITY = [65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824];
+
+test('an identity matrix means no rotation, so ordinary files are untouched', () => {
+  // The overwhelmingly common case: every unrotated recording measured carries
+  // exactly this. If it ever returns non-zero, correct videos start rotating.
+  expect(trackRotation(IDENTITY)).toBe(0);
+});
+
+test('a missing or unreadable matrix is not guessed at', () => {
+  expect(trackRotation(undefined)).toBe(0);
+  expect(trackRotation([])).toBe(0);
+});
+
+test('each quarter-turn matrix maps to the canvas turn that lands it upright', () => {
+  // Fixtures built with `-display_rotation 90/180/270`, which ffprobe reads back
+  // as 90, -180 and -90. The counter-turn is what the canvas must apply, and it
+  // was confirmed by exporting the 90 case and checking the banner that belongs
+  // along the top of the screen actually landed there, right way up.
+  expect(trackRotation([0, -65536, 0, 65536, 0, 0, 0, 0, 1073741824])).toBe(270);
+  expect(trackRotation([-65536, 0, 0, 0, -65536, 0, 0, 0, 1073741824])).toBe(180);
+  expect(trackRotation([0, 65536, 0, -65536, 0, 0, 0, 0, 1073741824])).toBe(90);
+});
+
+test('an unrecognised transform leaves the frame alone rather than approximating', () => {
+  // A horizontal flip. Rotating it by a nearest right angle would distort a file
+  // that is currently exported correctly, so 0 is the only safe answer.
+  expect(trackRotation([-65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824])).toBe(0);
+});
+
+test('the video background fallback is opaque, since H.264 carries no alpha', () => {
+  // A transparent request cannot survive into an MP4. What matters is that the
+  // colour is DEFINED — the bug was that it defaulted to whatever the canvas
+  // left behind, which sampled as pure black while the UI said "Transparent".
+  expect(VIDEO_TRANSPARENT_FALLBACK).toMatch(/^#[0-9a-f]{6}$/);
 });
 
 test('with no audio the base is the video start, so video rebases to zero', () => {

@@ -2,7 +2,7 @@ import { ArrayBufferTarget, Muxer } from 'mp4-muxer';
 import { createFile, MP4BoxBuffer, MultiBufferStream } from 'mp4box';
 import type { AudioSampleEntry, ISOFile, Sample, Track, VisualSampleEntry } from 'mp4box';
 import type { DeviceFrame } from '../hooks/useFrames';
-import { renderFrameToCanvas } from './renderFrame';
+import { renderFrameToCanvas, type ImageSource } from './renderFrame';
 import {
   assertVideoSupported,
   encodableOutputSize,
@@ -288,6 +288,57 @@ export function trackEditWindow(
 }
 
 /**
+ * The clockwise canvas rotation, in degrees, that undoes a track's display
+ * matrix — i.e. what must be APPLIED to a decoded frame to land it upright, not
+ * the rotation the matrix describes. The two are opposite turns; see the sign
+ * note below, which cost an upside-down export to establish.
+ *
+ * A portrait phone or simulator recording is very often stored as LANDSCAPE
+ * coded pixels plus a 90° rotation in the track matrix — the encoder works in
+ * its native orientation and the container carries the correction. Players and
+ * the <video> element apply it; WebCodecs does not, and mp4box reports the
+ * coded size unchanged.
+ *
+ * That split is what makes reading this necessary rather than cosmetic. Device
+ * detection probes through a <video> element, whose videoWidth/videoHeight are
+ * rotation-AWARE, so a matrix-rotated recording matches a PORTRAIT device, while
+ * the decoder hands back landscape frames. Compositing those into the portrait
+ * screen rect stretches them across it — measured on a 1920x1080-coded clip with
+ * a 90° matrix, the banner that should run along the top of the screen came out
+ * as a vertical strip down its right-hand edge, text on its side.
+ *
+ * Only the four right angles are recognised, which is all the matrix is used for
+ * in practice. The matrix stores 16.16 fixed-point values, so 65536 is 1.0;
+ * a/b/c/d are the rotation/scale terms in the order mp4box exposes them
+ * (a, b, u, c, d, v, x, y, w). Anything else — a flip, a shear, an unwritten
+ * matrix — returns 0, deliberately: an unrecognised transform must leave the
+ * frame exactly as it is rather than be approximated into a wrong rotation.
+ */
+export function trackRotation(matrix: ArrayLike<number> | undefined): 0 | 90 | 180 | 270 {
+  if (!matrix || matrix.length < 5) return 0;
+  // Indexed rather than destructured: mp4box hands this back as an Int32Array,
+  // which ArrayLike does not promise is iterable.
+  const a = matrix[0];
+  const b = matrix[1];
+  const c = matrix[3];
+  const d = matrix[4];
+  const unit = 65536;
+  if (a === unit && b === 0 && c === 0 && d === unit) return 0;
+  // Signs verified by EXPORTING rotated fixtures and looking at the result, not
+  // by reading the spec or trusting ffprobe's sign convention — which is the
+  // opposite of the one a canvas needs. ffprobe labels the matrix below
+  // "rotation 90", but that describes the rotation already baked into the
+  // stored pixels; undoing it on the canvas is the counter-turn, and rotating
+  // the way ffprobe's number reads produced a 180°-wrong export with the image
+  // upside down. These constants are the canvas turn that lands the frame
+  // upright.
+  if (a === 0 && b === -unit && c === unit && d === 0) return 270;
+  if (a === -unit && b === 0 && c === 0 && d === -unit) return 180;
+  if (a === 0 && b === unit && c === -unit && d === 0) return 90;
+  return 0;
+}
+
+/**
  * The single origin both tracks are measured from, in microseconds.
  *
  * Both tracks are shifted by this one value rather than each by its own start,
@@ -507,6 +558,23 @@ interface DemuxedTrack {
   start: number;
   /** Undefined when the source has no audio track mp4box could read. */
   audio: DemuxedAudio | undefined;
+  /**
+   * The presentation time, in microseconds, before which decoded frames must not
+   * be ENCODED. Zero when the edit list selects from the very beginning, which is
+   * the common case.
+   *
+   * Separate from the chunk list on purpose: the chunks before this point are
+   * still demuxed and still fed to the decoder, because a delta frame cannot be
+   * decoded without the keyframe it references. Only the output is discarded.
+   * See the drop in renderVideoToBlob.
+   */
+  encodeFrom: number;
+  /**
+   * Clockwise degrees the container's display matrix asks for. Decoded frames
+   * carry coded pixels, which for a rotated recording are not the orientation
+   * the user (or device detection) sees. See trackRotation.
+   */
+  rotation: 0 | 90 | 180 | 270;
 }
 
 /**
@@ -541,10 +609,11 @@ async function demuxVideoTrack(file: File): Promise<DemuxedTrack> {
   // timeline and nothing has to remember to correct it later.
   let videoShift = 0;
   let audioShift = 0;
-  // The interval each track's edit list actually selects, on that same shifted
-  // timeline. Both tracks are cut against ONE end, resolved in onReady, because
-  // trimming them independently would move audio and video by different amounts
-  // and desync a recording the shift had just aligned.
+  // The interval the video edit list actually selects, on that same shifted
+  // timeline. Both tracks are cut against ONE start and ONE end, resolved in
+  // onReady, because trimming them independently would move audio and video by
+  // different amounts and desync a recording the shift had just aligned.
+  let editStart = 0;
   let editEnd = Number.POSITIVE_INFINITY;
 
   isoFile.onError = (module, message) => {
@@ -558,15 +627,27 @@ async function demuxVideoTrack(file: File): Promise<DemuxedTrack> {
       if (!sample.data) continue;
       const timestamp =
         Math.round((sample.cts * 1e6) / sample.timescale) - (isAudio ? audioShift : videoShift);
-      // Past the end of what the edit list selects: this is footage the user
-      // trimmed away, still sitting in the file because a container trim only
-      // rewrites the edit list. Emitting it would hand back the cut frames.
-      //
-      // Only the tail is cut, never the head. The shift already puts the first
-      // selected sample at the window's start, so there is nothing before it to
-      // drop — and dropping from the front is what would strand the delta
-      // frames that follow without the keyframe they reference.
+      // Outside what the edit list selects: this is footage the user trimmed
+      // away, still sitting in the file because a container trim only rewrites
+      // the edit list. Emitting it would hand back the cut frames.
       if (timestamp >= editEnd) continue;
+      // The head is cut too, but the two tracks cannot cut it in the same place.
+      //
+      // Audio samples are independently decodable, so one before the window is
+      // simply dropped here. A video sample is not: dropping leading samples
+      // from the DECODER would strand the delta frames that follow without the
+      // keyframe they reference, and the decoder would emit garbage or nothing
+      // at all. So pre-window video chunks are still demuxed and still decoded —
+      // they are what makes the first kept frame decodable — and are discarded
+      // after decoding instead, on the encoder's side. See `encodeFrom`.
+      //
+      // Skipping this for video is not a licence to keep the frames: leaving
+      // them in the OUTPUT is the bug this fixes. Measured on a clip whose edit
+      // selects media 2s..4s, the export came back 3.933s / 118 frames instead
+      // of 2.000s / 60 — the first two seconds the user cut, handed straight
+      // back, because subtracting the shift only made their timestamps negative
+      // and the muxer's offset rebasing pulled them into the file.
+      if (isAudio && timestamp < editStart) continue;
       const init = {
         // Every audio sample is independently decodable; only video has deltas.
         type: (isAudio || sample.is_sync ? 'key' : 'delta') as EncodedVideoChunkType,
@@ -595,13 +676,15 @@ async function demuxVideoTrack(file: File): Promise<DemuxedTrack> {
     videoTrack = info.videoTracks[0];
     if (!videoTrack) return;
     videoShift = trackTimeShift(videoTrack.edits, videoTrack.timescale, info.timescale);
-    // One end for both tracks, taken from the video edit list. Audio's own list
-    // would usually give the same answer, but "usually" is not good enough: the
-    // two are rounded to different timescales, and cutting each track at its own
-    // end would leave audio running past the last frame — a desync introduced by
-    // the very fix meant to remove trimmed footage. Video is the track the user
-    // sees, so it decides.
-    editEnd = trackEditWindow(videoTrack.edits, info.timescale).end;
+    // One window for both tracks, taken from the video edit list. Audio's own
+    // list would usually give the same answer, but "usually" is not good enough:
+    // the two are rounded to different timescales, and cutting each track at its
+    // own bounds would leave audio starting or running past the video — a desync
+    // introduced by the very fix meant to remove trimmed footage. Video is the
+    // track the user sees, so it decides both ends.
+    const window = trackEditWindow(videoTrack.edits, info.timescale);
+    editStart = window.start;
+    editEnd = window.end;
     // Both setExtractionOptions calls must precede the single start(), and all
     // of it must stay synchronous inside onReady — mp4box empties its stream
     // buffers during appendBuffer, so anything deferred yields zero samples.
@@ -647,12 +730,22 @@ async function demuxVideoTrack(file: File): Promise<DemuxedTrack> {
     }
   }
 
+  // Where the OUTPUT begins, which is not chunks[0] when the head is trimmed:
+  // the leading chunks are retained only so the decoder can reach the first kept
+  // frame, and rebasing the timeline onto one of them would put the discarded
+  // footage's start at t=0 and leave the kept frames beginning several seconds
+  // in. Clamped to the first chunk so a file with no trim — every file with no
+  // edit list — resolves to exactly the value it did before.
+  const start = Math.max(chunks[0].timestamp, editStart);
+
   return {
     track: videoTrack,
     chunks,
     description: decoderDescription(entry),
-    start: chunks[0].timestamp,
+    start,
     audio,
+    encodeFrom: editStart,
+    rotation: trackRotation(videoTrack.matrix),
   };
 }
 
@@ -1085,6 +1178,75 @@ async function transcodeAudio(
 }
 
 /**
+ * The background a video export uses when the user asked for transparency.
+ *
+ * H.264 has no alpha channel, so "transparent" is not a thing an MP4 can carry.
+ * The pixels outside the bezel have to be SOME colour, and leaving it to chance
+ * meant they came out pure black — measured, an export made with "Transparent"
+ * selected sampled `#000000` in every outside-bezel corner while the inspector
+ * still showed transparency as the active choice. The still preview honoured the
+ * request and the downloaded video quietly did not.
+ *
+ * So the fallback is named and deliberate rather than incidental. White, because
+ * it is what a transparent PNG reads as against the light surfaces these frames
+ * are usually dropped onto, and because black is the one value the accidental
+ * behaviour already produced — keeping it would make a bug indistinguishable
+ * from a decision. The UI states this next to the swatch rather than leaving the
+ * user to discover it in the file; see Inspector's video-background note.
+ *
+ * Stills are deliberately NOT routed through this. PNG carries alpha, transparent
+ * export is a real feature there, and nothing about this constant touches it.
+ */
+export const VIDEO_TRANSPARENT_FALLBACK = '#ffffff';
+
+/**
+ * Draws a decoded frame onto `target` with the container's rotation applied, so
+ * what reaches the compositor is the orientation the user actually recorded.
+ *
+ * Needed because the two halves of this pipeline disagree about orientation.
+ * Device detection probes through a <video> element, which applies the display
+ * matrix, so a portrait recording stored as rotated landscape matches a PORTRAIT
+ * device. VideoDecoder applies nothing, so the frames are landscape. Handing
+ * those to renderFrameToCanvas stretches landscape pixels across a portrait
+ * screen rect — measured as a sideways, distorted export.
+ *
+ * The rotation is undone HERE rather than inside renderFrameToCanvas because
+ * that function is shared with stills, which have no container matrix and must
+ * keep behaving exactly as they do. A file with no rotation never reaches this
+ * function at all; see the call site.
+ *
+ * For the quarter turns the target swaps width and height — a 1920x1080 frame
+ * rotated 90° is 1080x1920 — and the context is rotated about the centre so the
+ * frame lands square rather than offset by its own dimensions.
+ */
+function drawRotated(
+  target: HTMLCanvasElement,
+  source: VideoFrame,
+  rotation: 90 | 180 | 270
+): void {
+  const width = source.displayWidth;
+  const height = source.displayHeight;
+  const quarterTurn = rotation === 90 || rotation === 270;
+  target.width = quarterTurn ? height : width;
+  target.height = quarterTurn ? width : height;
+
+  const ctx = target.getContext('2d');
+  if (!ctx) throw new Error('No rotation canvas context');
+  // The canvas is reused for every frame of the clip, and re-assigning the SAME
+  // width/height to an already-that-size canvas is a no-op in most engines — so
+  // the state reset a resize would give us cannot be relied on here. Without
+  // this, the translate/rotate below compound frame after frame and the picture
+  // spins away. Same hazard renderFrame documents for its scratch canvas.
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // Same reasoning as renderFrame's composite step: interpolation here would
+  // resample the source before the bezel does, softening it twice.
+  ctx.imageSmoothingEnabled = false;
+  ctx.translate(target.width / 2, target.height / 2);
+  ctx.rotate((rotation * Math.PI) / 180);
+  ctx.drawImage(source, -width / 2, -height / 2);
+}
+
+/**
  * Encodes `file` as an MP4 with each frame composited into `frame`'s bezel.
  *
  * Compositing goes through renderFrameToCanvas — the same function stills use —
@@ -1116,6 +1278,11 @@ export async function renderVideoToBlob(
   } = {}
 ): Promise<Blob> {
   const { backgroundColor = null, signal, onProgress, onAudioDropped } = options;
+  // Resolved once, here, rather than at each composite: every frame of the clip
+  // must agree, and an MP4 cannot honour transparency at all. See
+  // VIDEO_TRANSPARENT_FALLBACK for why this is a named colour and not whatever
+  // the canvas happened to leave behind.
+  const videoBackground = backgroundColor ?? VIDEO_TRANSPARENT_FALLBACK;
   // Cleared after it fires, so "first" is decided by this loop rather than by
   // how the encoder's asynchronous output callback happens to be paced against
   // it — `encoded` increments on the codec's own task and is still 0 here.
@@ -1183,6 +1350,11 @@ export async function renderVideoToBlob(
   // canvas.
   const canvas = document.createElement('canvas');
   const scratchCanvas = document.createElement('canvas');
+  // Only allocated for a rotated source, so an ordinary recording carries no
+  // extra canvas and takes a path identical to before. Reused across frames for
+  // the same reason scratchCanvas is: a per-frame allocation is ~1,800 of them
+  // in a minute of 30fps footage.
+  const rotationCanvas = demuxed.rotation ? document.createElement('canvas') : undefined;
   // What actually reaches the encoder: the composite scaled to fit the codec's
   // limits, at even dimensions. Kept separate from `canvas` because
   // renderFrameToCanvas always sizes that one to the frame PNG.
@@ -1326,8 +1498,30 @@ export async function renderVideoToBlob(
         throwIfAborted(signal);
         if (encoderError) throw encoderError;
 
-        await renderFrameToCanvas(canvas, videoFrame, frame, {
-          backgroundColor,
+        // Footage the user trimmed off the FRONT. These frames had to be decoded
+        // — the first kept frame is a delta frame that references them — but they
+        // must not reach the encoder, or the export hands back the seconds that
+        // were cut. Dropped here rather than in the demuxer for exactly that
+        // reason; see `encodeFrom`.
+        //
+        // Before the composite, not after: compositing a frame nobody will encode
+        // is wasted work, and — load-bearing — it is also before onFirstFrame, so
+        // the card's preview is the first KEPT frame rather than a discarded one.
+        // The finally below still closes the frame.
+        if (videoFrame.timestamp < demuxed.encodeFrom) continue;
+
+        // A rotated source is straightened first, so the compositor receives the
+        // orientation device detection matched against. An unrotated file —
+        // almost every file — passes the decoded frame straight through and this
+        // branch never runs. See drawRotated.
+        let composeSource: ImageSource = videoFrame;
+        if (rotationCanvas && demuxed.rotation) {
+          drawRotated(rotationCanvas, videoFrame, demuxed.rotation);
+          composeSource = rotationCanvas;
+        }
+
+        await renderFrameToCanvas(canvas, composeSource, frame, {
+          backgroundColor: videoBackground,
           signal,
           scratchCanvas,
         });
@@ -1344,11 +1538,15 @@ export async function renderVideoToBlob(
         // configured size, which is the whole bug this sizing exists to fix.
         //
         // Cleared first because drawImage composites source-over onto whatever
-        // is already there. renderFrameToCanvas clears its own canvas but only
-        // paints a background when one was asked for, so with the default
-        // transparent background every pixel outside the bezel stays clear and
-        // would otherwise retain frame N-1 — the same ghosting the scratch
-        // canvas hit one layer in. H.264 has no alpha, so it bakes in.
+        // is already there, so any pixel the composite does not cover would
+        // retain frame N-1 — the same ghosting the scratch canvas hit one layer
+        // in, and H.264 has no alpha, so it would bake in.
+        //
+        // The composite is now always opaque (see VIDEO_TRANSPARENT_FALLBACK),
+        // which makes this belt-and-braces rather than load-bearing. It is kept
+        // because the guarantee it depends on lives in another function: the
+        // clear costs one fill per frame and stops a future background change
+        // from silently reintroducing ghosting.
         outputCtx!.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
         outputCtx!.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height);
 

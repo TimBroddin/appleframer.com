@@ -142,6 +142,16 @@ const Inspector = ({
   };
 
   const hasSelection = selectedItems.length > 0;
+
+  /**
+   * Whether the transparent swatch is currently promising something an MP4
+   * cannot deliver. H.264 carries no alpha, so a video exported with
+   * transparency selected gets an opaque background regardless; saying so here
+   * is what keeps the control from quietly meaning two different things
+   * depending on the file type. Stills are unaffected — a transparent PNG is a
+   * real deliverable — so the note appears only when a video is actually queued.
+   */
+  const transparentVideoNote = backgroundColor === null && items.some((item) => isVideoFile(item.file));
   // Unmatched images never render, so promising to zip them would be a lie. A
   // video whose encode FAILED is the same lie by a different route: it has a
   // device, so it counted here, but there is no MP4 to put in the archive and
@@ -335,6 +345,13 @@ const Inspector = ({
               />
             </div>
           </div>
+
+          {transparentVideoNote && (
+            <p className="text-xs-plus leading-snug text-ink-faint">
+              Video has no transparency — MP4 exports get a white background. PNGs stay
+              transparent.
+            </p>
+          )}
         </div>
 
         <NamingComposer tokens={tokens} onChange={onSetTokens} preview={namePreview} />

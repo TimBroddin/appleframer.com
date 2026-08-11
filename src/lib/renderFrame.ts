@@ -9,8 +9,14 @@ import { DeviceFrame, getFramePath } from '../hooks/useFrames';
  * both callers now come through here.
  */
 
-/** Anything drawImage accepts and that reports intrinsic dimensions. */
-export type ImageSource = ImageBitmap | HTMLImageElement | VideoFrame;
+/**
+ * Anything drawImage accepts and that reports intrinsic dimensions.
+ *
+ * HTMLCanvasElement is here for the video path, which straightens a
+ * matrix-rotated frame onto a canvas before compositing it. Its width/height are
+ * the intrinsic ones, so the helpers below need no special case for it.
+ */
+export type ImageSource = ImageBitmap | HTMLImageElement | VideoFrame | HTMLCanvasElement;
 
 /**
  * VideoFrame reports displayWidth/displayHeight rather than width/height.
