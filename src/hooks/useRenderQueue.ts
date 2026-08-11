@@ -366,6 +366,29 @@ export function useRenderQueue(
     [patchItem]
   );
 
+  /**
+   * Records that detection could not read the file at all.
+   *
+   * Separate from resolveDetection because the two are different answers, not
+   * degrees of the same one. 'unmatched' means the file was read and its
+   * dimensions matched no device — the remedy is to pick one in the inspector.
+   * A file that could not be read has no dimensions to match, so offering that
+   * remedy sends the user to assign a device that only queues another failed
+   * read. Landing in 'error' with the reason says what actually happened.
+   *
+   * Same staleness guard as resolveDetection: the item may have been removed or
+   * had a device picked by hand while the probe or decode was in flight, and a
+   * late failure must not overwrite either.
+   */
+  const failDetection = useCallback(
+    (id: string, message: string) => {
+      const current = itemsRef.current.find((item) => item.id === id);
+      if (!current || current.status !== 'detecting') return;
+      patchItem(id, { status: 'error', error: message });
+    },
+    [patchItem]
+  );
+
   /** Reassigns the device for a set of items and re-queues them. */
   const setFrameFor = useCallback((ids: string[], frame: DeviceFrame) => {
     const idSet = new Set(ids);
@@ -459,6 +482,7 @@ export function useRenderQueue(
     items,
     addFiles,
     resolveDetection,
+    failDetection,
     setFrameFor,
     removeItems,
     doneCount,

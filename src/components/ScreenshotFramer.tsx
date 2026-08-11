@@ -79,6 +79,7 @@ const ScreenshotFramer = ({
     items,
     addFiles,
     resolveDetection,
+    failDetection,
     setFrameFor,
     removeItems,
     doneCount,
@@ -167,6 +168,9 @@ const ScreenshotFramer = ({
       let matched = 0;
       const devices = new Set<string>();
       const unmatchedNames: string[] = [];
+      // Kept apart from unmatchedNames because they are different outcomes with
+      // different remedies, and the summary has to say which one happened.
+      const unreadableNames: string[] = [];
 
       const worker = async () => {
         for (;;) {
@@ -213,9 +217,27 @@ const ScreenshotFramer = ({
             } else {
               unmatchedNames.push(entry.file.name);
             }
-          } catch {
-            resolveDetection(entry.id, undefined);
-            unmatchedNames.push(entry.file.name);
+          } catch (err) {
+            // Reaching here means the file was never read: probeVideo rejected
+            // (corrupt container, codec the browser will not touch, or the
+            // probe timeout) or decodeFile rejected on a truncated image.
+            //
+            // Reporting that as 'unmatched' — which is what this used to do —
+            // says "no matching device" about a file whose dimensions were
+            // never determined, and invites the user to assign a device in the
+            // inspector. Doing so only queues another read of the same
+            // unreadable file. Images take this path for the same reason
+            // videos do: a truncated PNG is not a sizing problem either.
+            //
+            // The probe's own message is already written for the user; a
+            // decode failure has no such message, so the generic one stands in.
+            failDetection(
+              entry.id,
+              err instanceof Error && err.message
+                ? err.message
+                : 'Could not read this file. It may be corrupt or use an unsupported format.'
+            );
+            unreadableNames.push(entry.file.name);
           }
         }
       };
@@ -241,8 +263,19 @@ const ScreenshotFramer = ({
             : `${unmatchedNames.length} images had no matching device`
         );
       }
+
+      // error rather than warning, and separate from the unmatched summary: an
+      // unmatched file is one device pick away from working, whereas this one
+      // is not usable at all without the user replacing it.
+      if (unreadableNames.length > 0) {
+        toast.error(
+          unreadableNames.length === 1
+            ? `Could not read ${unreadableNames[0]}`
+            : `${unreadableNames.length} files could not be read`
+        );
+      }
     },
-    [frames, addFiles, resolveDetection]
+    [frames, addFiles, resolveDetection, failDetection]
   );
 
   // The empty state advertises clipboard paste, so it has to work.
@@ -427,11 +460,41 @@ const ScreenshotFramer = ({
           }))
         );
 
-        // Render at full resolution here rather than on upload. Sequentially,
-        // because each render is main-thread canvas work.
         let packed = 0;
         const unfinished: string[] = [];
         const failed: string[] = [];
+
+        // Resolve every videoUrl BEFORE the still renders, which are the slow
+        // part of this loop.
+        //
+        // videoUrl is owned by the queue, and the queue keeps mutating while
+        // this runs: the background swatch, the device picker and Remove all
+        // stay enabled, and each revokes the object URL. Fetching a video late
+        // — after seconds of full-resolution still rendering — meant a
+        // background change mid-download made that fetch fail, and the outer
+        // catch threw away the WHOLE archive, including every still already
+        // rendered. Reproduced: 8 stills + 1 video, swatch clicked 250ms in,
+        // no zip at all and ERR_FILE_NOT_FOUND on the console.
+        //
+        // Resolving first shrinks the window to the few milliseconds before any
+        // rendering starts. This does not duplicate the MP4s: fetch().blob() on
+        // a blob: URL hands back the same underlying bytes rather than copying
+        // them, so holding them here costs a reference each, not another copy
+        // of a batch of videos.
+        const videoBlobs = new Map<string, Blob>();
+        for (const item of ready) {
+          if (!isVideoFile(item.file) || !item.videoUrl) continue;
+          try {
+            videoBlobs.set(item.id, await fetch(item.videoUrl).then((res) => res.blob()));
+          } catch {
+            // Revoked before this loop got to it. One video is lost rather than
+            // the archive; it is reported below alongside the failed encodes.
+            failed.push(item.file.name);
+          }
+        }
+
+        // Render at full resolution here rather than on upload. Sequentially,
+        // because each render is main-thread canvas work.
         for (let index = 0; index < ready.length; index++) {
           const item = ready[index];
           // A video cannot be re-rendered on demand the way a still can — the
@@ -439,17 +502,20 @@ const ScreenshotFramer = ({
           // MP4 rather than handing decodeFile a video file, which rejects and
           // would fail the WHOLE archive over one item.
           if (isVideoFile(item.file)) {
-            if (!item.videoUrl) {
-              // A failed encode also has a frame and no videoUrl, so the two
-              // are indistinguishable by videoUrl alone — and calling a failure
-              // "still encoding" tells the user to wait for something that will
-              // never finish. The card already says it failed; the toast has to
-              // agree with it.
-              if (item.status === 'error') failed.push(item.file.name);
-              else unfinished.push(item.file.name);
+            const encoded = videoBlobs.get(item.id);
+            if (!encoded) {
+              // Already counted in `failed` if its fetch lost the race above.
+              if (!item.videoUrl) {
+                // A failed encode also has a frame and no videoUrl, so the two
+                // are indistinguishable by videoUrl alone — and calling a
+                // failure "still encoding" tells the user to wait for something
+                // that will never finish. The card already says it failed; the
+                // toast has to agree with it.
+                if (item.status === 'error') failed.push(item.file.name);
+                else unfinished.push(item.file.name);
+              }
               continue;
             }
-            const encoded = await fetch(item.videoUrl).then((res) => res.blob());
             zip.file(`${names[index]}.mp4`, encoded);
             packed++;
             continue;
