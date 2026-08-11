@@ -94,8 +94,14 @@ const UploadZone = ({ onFilesSelected }: UploadZoneProps) => {
           Choose screenshots
         </button>
 
-        <span className="text-[13px] text-ink-faint">
-          or drag them anywhere on this page
+        {/* The input has accepted video since framing shipped, but every visible
+            word said "screenshots", so nobody had reason to try one. Naming it
+            here is the only place a first-time visitor would find out.
+
+            Kept to one short clause: the longer phrasing wrapped on a 390px
+            viewport and pushed past the dashed drop target's edge. */}
+        <span className="max-w-full px-4 text-center text-[13px] text-ink-faint">
+          or drag them anywhere — recordings too
         </span>
 
         <input
@@ -176,6 +182,12 @@ const FACTS: Array<{ claim: string; detail: string }> = [
     claim: 'Takes a whole set at once',
     detail: 'mixed devices, downloaded as one ZIP',
   },
+  // Named as "screen recordings" rather than "video": that is the file people
+  // actually have, and it says what the input is instead of what the feature is.
+  {
+    claim: 'Frames screen recordings too',
+    detail: 'exported as an MP4 with the sound kept',
+  },
   {
     claim: 'iPhone, iPad and Apple Watch',
     detail: 'iPhone 8 through 17 and Air, every current iPad, Series and Ultra',
@@ -191,7 +203,7 @@ const FACTS: Array<{ claim: string; detail: string }> = [
 ];
 
 const STEPS = [
-  'Drop your screenshots in, or paste them from the clipboard.',
+  'Drop your screenshots or screen recordings in, or paste them from the clipboard.',
   'Each one gets matched to a device. Change any of them in the panel on the right.',
   'Pick a background and how files are named, then download one or the whole batch.',
 ];
@@ -216,7 +228,8 @@ const LandingContent = () => (
       </p>
       <p className="m-0 text-[14px] leading-relaxed text-ink-soft">
         AppleFramer does that for iPhone, iPad and Apple Watch, and exports a PNG
-        on a transparent or solid background.
+        on a transparent or solid background. Screen recordings work the same
+        way and come back as an MP4.
       </p>
     </section>
 
