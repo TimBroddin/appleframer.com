@@ -82,8 +82,8 @@ const UploadZone = ({ onFilesSelected }: UploadZoneProps) => {
       >
         <BeforeAfter />
 
-        <h1 className="m-0 mt-1 max-w-[20ch] text-center text-[26px] font-bold leading-tight tracking-[-0.025em] text-ink">
-          Put your screenshots in an iPhone
+        <h1 className="m-0 mt-1 max-w-[24ch] text-center text-[26px] font-bold leading-tight tracking-[-0.025em] text-ink">
+          Put your screenshots and videos in an iPhone
         </h1>
 
         <button
