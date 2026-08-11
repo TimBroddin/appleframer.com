@@ -793,6 +793,16 @@ interface AudioPipeline {
   setSink: (sink: (chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata) => void) => void;
   /** Set from either codec's error callback; read by the transcode loop. */
   readError: () => Error | undefined;
+  /**
+   * How many encoded chunks actually reached the muxer.
+   *
+   * Distinguishes a partially-fed audio track from one that was declared and
+   * never fed at all. The two look identical at the finalize site but are not
+   * the same file: partial feeding truncates the audio, which players handle,
+   * while zero samples is the stall-on-playback case this pipeline goes to
+   * some length to avoid. See the finalize path in renderVideoToBlob.
+   */
+  readChunkCount: () => number;
   close: () => void;
 }
 
@@ -846,6 +856,13 @@ async function createAudioPipeline(audio: DemuxedAudio): Promise<AudioPipeline |
   // no-op is never actually hit; it exists so the callback is total.
   let sink: (chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata) => void = () => {};
 
+  // Counts chunks handed to the REAL sink, not chunks the encoder emitted.
+  // Until transcodeAudio points the sink at the muxer it is a no-op, and a
+  // chunk that went there reached no muxer — counting it would assert the track
+  // had samples when it has none, which is exactly the state this detects.
+  // Incremented by the sink setter below rather than here.
+  let chunkCount = 0;
+
   try {
     encoder = new AudioEncoder({
       output: (chunk, meta) => sink(chunk, meta),
@@ -874,9 +891,15 @@ async function createAudioPipeline(audio: DemuxedAudio): Promise<AudioPipeline |
     encoder,
     pending,
     setSink: (next) => {
-      sink = next;
+      // Wrapped rather than stored directly so the count follows the chunks
+      // that actually reach the muxer, whatever the sink turns out to be.
+      sink = (chunk, meta) => {
+        next(chunk, meta);
+        chunkCount += 1;
+      };
     },
     readError: () => codecError,
+    readChunkCount: () => chunkCount,
     close: () => {
       for (const data of pending) data.close();
       pending.length = 0;
@@ -1091,6 +1114,22 @@ export async function renderVideoToBlob(
   let outputCtx: CanvasRenderingContext2D | undefined;
   let encoderError: Error | undefined;
   let encoded = 0;
+  /**
+   * Every encoded video chunk, kept so the file can be re-muxed without an
+   * audio track if audio turns out to have contributed nothing. A muxer cannot
+   * un-declare a track, so the only way back from a declared-but-unfed audio
+   * track is to build a second muxer — which needs the chunks again.
+   *
+   * Retained only when there is an audio track that could still fail this way;
+   * a video-only export never populates this. The memory is proportional to the
+   * COMPRESSED output, which ArrayBufferTarget is already holding in full, so
+   * this at worst doubles a cost the export already pays rather than adding one
+   * of a different order.
+   */
+  const videoChunks: { chunk: EncodedVideoChunk; meta?: EncodedVideoChunkMetadata }[] = [];
+  const retainVideoChunks = Boolean(audio);
+  /** The encoded size, kept so a re-mux declares the same video track. */
+  let outputSize: { width: number; height: number } | undefined;
 
   const configure = async () => {
     // The composite is scaled to the largest size the codec will accept at this
@@ -1108,6 +1147,7 @@ export async function renderVideoToBlob(
     const { width, height } = encodableOutputSize(canvas.width, canvas.height);
     outputCanvas.width = width;
     outputCanvas.height = height;
+    outputSize = { width, height };
 
     outputCtx = outputCanvas.getContext('2d') ?? undefined;
     if (!outputCtx) throw new Error('No output canvas context');
@@ -1179,6 +1219,10 @@ export async function renderVideoToBlob(
     encoder = new VideoEncoder({
       output: (chunk, meta) => {
         muxer!.addVideoChunk(chunk, meta);
+        // Held for a possible video-only re-mux. EncodedVideoChunk is immutable
+        // and the muxer copies what it needs, so keeping the reference is safe
+        // and costs no copy here.
+        if (retainVideoChunks) videoChunks.push({ chunk, meta });
         encoded += 1;
         onProgress?.(progressFraction(encoded, info.frameCount));
       },
@@ -1327,11 +1371,46 @@ export async function renderVideoToBlob(
     if (encoderError) throw encoderError;
     throwIfAborted(signal);
     if (audioFailure) {
-      // The track was declared and partially fed. Measured: that truncates the
-      // audio rather than corrupting the file — players read the samples that
-      // are there — which is why this is recoverable at all, and why the
-      // unrecoverable case is handled before the muxer is built.
       onAudioDropped?.(audioFailure);
+
+      // Whether the declared audio track ever received a sample decides which
+      // file this is, and the two are not equally survivable.
+      //
+      // Partially fed: measured to truncate the audio rather than corrupt the
+      // file — players read the samples that are there — so finalizing as-is is
+      // the right trade, and it is why a late audio failure is recoverable at
+      // all.
+      //
+      // Fed NOTHING: this is the state the pre-flight exists to prevent and
+      // that this file documents as the bad one — a declared track with a full
+      // duration and zero packets, measured to stall on playback. It is
+      // reachable here despite the pre-flight because a codec can fail
+      // asynchronously AFTER configure() succeeded but before emitting its
+      // first chunk, which no check made before the muxer was built could have
+      // seen.
+      //
+      // The remedy is a re-mux rather than a failed export, for the same reason
+      // the pre-flight degrades instead of throwing: the user asked for a framed
+      // video, the video track is complete and correct, and destroying it over
+      // an audio track that contributed nothing would cost them the thing they
+      // actually wanted. Re-muxing replays the retained chunks into a
+      // video-only muxer, which is cheap — no re-encoding, just a container
+      // rebuild.
+      if (audioPipeline && audioPipeline.readChunkCount() === 0 && outputSize) {
+        const videoOnly = new Muxer({
+          target: new ArrayBufferTarget(),
+          video: { codec: 'avc', width: outputSize.width, height: outputSize.height },
+          fastStart: 'in-memory',
+          // Same reasoning as the first muxer: the chunks being replayed carry
+          // the timestamps they were encoded with, so the rebase must match or
+          // the timeline shifts.
+          firstTimestampBehavior: 'offset',
+        });
+        for (const { chunk, meta } of videoChunks) videoOnly.addVideoChunk(chunk, meta);
+        videoOnly.finalize();
+        onProgress?.(1);
+        return new Blob([videoOnly.target.buffer], { type: 'video/mp4' });
+      }
     }
     muxer.finalize();
     onProgress?.(1);

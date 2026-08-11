@@ -46,20 +46,99 @@ export interface QueueItem {
 let nextId = 0;
 export const createItemId = () => `item-${nextId++}`;
 
-/** Extensions checked when a dropped file carries no MIME type. */
-const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm'];
+/**
+ * Containers the video path can actually demux.
+ *
+ * Deliberately narrower than "what a <video> element can play". Demuxing goes
+ * through mp4box, which parses ISO-BMFF only, so these three are the whole set
+ * — .mp4 and .m4v are ISO-BMFF outright and .mov is the QuickTime layout
+ * mp4box also reads.
+ *
+ * .webm is the case that made this list necessary. It is a Matroska container,
+ * which mp4box cannot parse at all, but the <video> element plays it happily —
+ * so a dropped VP9 .webm probed fine, auto-detected a device, sat in the queue
+ * looking accepted, and only died at encode. Rejecting it at the door is the
+ * honest answer: the file was never going to work, and saying so after a
+ * successful-looking device match reads as a bug in the app rather than a
+ * limitation of the format.
+ */
+const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v'];
+
+/** MIME types matching the containers above, for files that carry one. */
+const VIDEO_MIME_TYPES = [
+  'video/mp4',
+  'video/quicktime',
+  'video/x-m4v',
+  'video/m4v',
+];
 
 /**
+ * Shown when a video is refused for its container rather than its codec or the
+ * browser. Names what works, because "unsupported" alone leaves the user with
+ * nothing to do — and the remedy here is a re-export, which is only obvious if
+ * the target format is stated.
+ */
+export const VIDEO_CONTAINER_UNSUPPORTED_MESSAGE =
+  'Only MP4 and MOV videos can be framed. Convert this file to MP4 and try again.';
+
+/**
+ * Whether a file is a video this pipeline can frame.
+ *
  * Videos take a different render path to images, so the queue has to tell them
  * apart. Some tools hand over screen recordings with an empty `type`, so the
  * extension is a necessary fallback rather than belt-and-braces.
+ *
+ * The MIME check is an allow-list rather than the `video/*` prefix it used to
+ * be, for the same reason the extension list is narrow: `video/webm` with no
+ * usable extension would otherwise take the exact path .webm was removed from.
+ * When a file carries a video MIME the extension is not consulted, so a
+ * correctly-typed file is judged on its type; a `video/*` type outside the
+ * list is not a video this app can frame.
  */
 export function isVideoFile(file: File): boolean {
-  if (file.type.startsWith('video/')) return true;
+  const type = file.type.toLowerCase();
+  if (type.startsWith('video/')) return VIDEO_MIME_TYPES.includes(type);
   if (file.type) return false;
   const name = file.name.toLowerCase();
   return VIDEO_EXTENSIONS.some((ext) => name.endsWith(ext));
 }
+
+/**
+ * Whether a file LOOKS like a video but is one this pipeline cannot demux.
+ *
+ * Separate from isVideoFile because the two answer different questions: that
+ * one gates the render path, this one gates the error message. A .webm must not
+ * be treated as framable, but it also must not be lumped in with the .DS_Store
+ * and PDFs that get silently filtered — the user chose a video on purpose and
+ * is owed a reason.
+ */
+export function isUnsupportedVideoFile(file: File): boolean {
+  if (isVideoFile(file)) return false;
+  if (file.type.toLowerCase().startsWith('video/')) return true;
+  // A typeless file whose extension reads as video: same situation, and the
+  // extension is all there is to go on.
+  const name = file.name.toLowerCase();
+  return !file.type && UNSUPPORTED_VIDEO_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
+
+/**
+ * Extensions that are recognisably video but not demuxable here. Not
+ * exhaustive, and does not need to be — it only decides whether a typeless
+ * rejected file gets the specific message or the generic one.
+ */
+const UNSUPPORTED_VIDEO_EXTENSIONS = ['.webm', '.mkv', '.avi', '.wmv', '.flv', '.ogv', '.mpg', '.mpeg'];
+
+/**
+ * The file picker's `accept` filter, derived from the same lists the drop path
+ * validates against so the two cannot drift.
+ *
+ * Spelled out rather than `video/*` because the picker should not advertise
+ * formats that will be rejected the moment they are chosen — a user who picks a
+ * .webm from a dialog that offered it has been misled by the app, not by their
+ * file. The extensions ride along with the MIME types because a screen recorder
+ * that writes a typeless file would otherwise be greyed out in the dialog.
+ */
+export const FILE_ACCEPT_ATTRIBUTE = ['image/*', ...VIDEO_MIME_TYPES, ...VIDEO_EXTENSIONS].join(',');
 
 /**
  * Whether the queue can do anything with a dropped file.

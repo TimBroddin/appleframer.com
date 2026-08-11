@@ -8,8 +8,11 @@ import {
   findFrameByScreenshotSize,
   frameLabel,
   isFramableFile,
+  isUnsupportedVideoFile,
   isVideoFile,
+  FILE_ACCEPT_ATTRIBUTE,
   QueueItem,
+  VIDEO_CONTAINER_UNSUPPORTED_MESSAGE,
 } from '../lib/queue';
 import { decodeFile, renderFrameToBlob } from '../lib/renderFrame';
 import { probeVideo } from '../lib/renderVideo';
@@ -114,8 +117,27 @@ const ScreenshotFramer = ({
   const handleFilesSelected = useCallback(
     async (files: File[]) => {
       const usableFiles = files.filter(isFramableFile);
+
+      // A video in a container this pipeline cannot demux — .webm above all —
+      // is called out by name rather than being swept in with the .DS_Store and
+      // PDFs the filter also drops. It looks like a perfectly good video to the
+      // user, and until it was rejected here it would probe, match a device and
+      // sit in the queue looking accepted before dying at encode.
+      const unsupportedVideos = files.filter(isUnsupportedVideoFile);
+      if (unsupportedVideos.length > 0) {
+        toast.error(
+          unsupportedVideos.length === 1
+            ? VIDEO_CONTAINER_UNSUPPORTED_MESSAGE
+            : `${unsupportedVideos.length} videos were skipped. ${VIDEO_CONTAINER_UNSUPPORTED_MESSAGE}`
+        );
+      }
+
       if (usableFiles.length === 0) {
-        toast.error('No image or video files found in that selection');
+        // Already explained above if the whole drop was unsupported video;
+        // repeating a vaguer version of it would only muddy the first message.
+        if (unsupportedVideos.length === 0) {
+          toast.error('No image or video files found in that selection');
+        }
         return;
       }
       if (frames.length === 0) return;
@@ -615,8 +637,9 @@ const ScreenshotFramer = ({
         type="file"
         multiple
         // Videos are framed too, so an image-only filter would let them be
-        // dropped but not chosen through the picker.
-        accept="image/*,video/*"
+        // dropped but not chosen through the picker. See
+        // FILE_ACCEPT_ATTRIBUTE for why this is not simply `video/*`.
+        accept={FILE_ACCEPT_ATTRIBUTE}
         className="hidden"
         onChange={(event) => {
           if (event.target.files?.length) {

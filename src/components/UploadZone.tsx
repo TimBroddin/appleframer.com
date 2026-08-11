@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check } from 'lucide-react';
+import { FILE_ACCEPT_ATTRIBUTE } from '../lib/queue';
 
 interface UploadZoneProps {
   onFilesSelected: (files: File[]) => void;
@@ -109,8 +110,9 @@ const UploadZone = ({ onFilesSelected }: UploadZoneProps) => {
           type="file"
           multiple
           // Videos are framed too, so an image-only filter would let them be
-          // dropped but not chosen through the picker.
-          accept="image/*,video/*"
+          // dropped but not chosen through the picker. See
+          // FILE_ACCEPT_ATTRIBUTE for why this is not simply `video/*`.
+          accept={FILE_ACCEPT_ATTRIBUTE}
           className="hidden"
           onChange={handleFileInputChange}
         />
