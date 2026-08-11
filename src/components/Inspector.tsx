@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Download } from 'lucide-react';
 import { DeviceFrame } from '../hooks/useFrames';
-import { QueueItem, findSibling, frameLabelDetailed } from '../lib/queue';
+import { QueueItem, findSibling, frameLabelDetailed, isVideoFile } from '../lib/queue';
 import { NameToken } from '../lib/filename';
 import DevicePicker from './DevicePicker';
 import NamingComposer from './NamingComposer';
@@ -142,8 +142,26 @@ const Inspector = ({
   };
 
   const hasSelection = selectedItems.length > 0;
-  // Unmatched images never render, so promising to zip them would be a lie.
-  const downloadableCount = items.filter((item) => item.status !== 'unmatched').length;
+
+  /**
+   * Whether the transparent swatch is currently promising something an MP4
+   * cannot deliver. H.264 carries no alpha, so a video exported with
+   * transparency selected gets an opaque background regardless; saying so here
+   * is what keeps the control from quietly meaning two different things
+   * depending on the file type. Stills are unaffected — a transparent PNG is a
+   * real deliverable — so the note appears only when a video is actually queued.
+   */
+  const transparentVideoNote = backgroundColor === null && items.some((item) => isVideoFile(item.file));
+  // Unmatched images never render, so promising to zip them would be a lie. A
+  // video whose encode FAILED is the same lie by a different route: it has a
+  // device, so it counted here, but there is no MP4 to put in the archive and
+  // the zip drops it. Excluding it is what makes this number match what the
+  // download actually contains. A still that errored is left in — its render is
+  // retried at export time and usually succeeds, so it is not a certain miss.
+  const downloadableCount = items.filter(
+    (item) =>
+      item.status !== 'unmatched' && !(item.status === 'error' && isVideoFile(item.file))
+  ).length;
 
   return (
     // relative + z-10 gives the inspector its own stacking context so its
@@ -327,6 +345,13 @@ const Inspector = ({
               />
             </div>
           </div>
+
+          {transparentVideoNote && (
+            <p className="text-xs-plus leading-snug text-ink-faint">
+              Video has no transparency — MP4 exports get a white background. PNGs stay
+              transparent.
+            </p>
+          )}
         </div>
 
         <NamingComposer tokens={tokens} onChange={onSetTokens} preview={namePreview} />

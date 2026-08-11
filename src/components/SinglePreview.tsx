@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
-import { QueueItem, frameLabelDetailed } from '../lib/queue';
+import { ChevronLeft, ChevronRight, Download, Film } from 'lucide-react';
+import { QueueItem, frameLabelDetailed, isVideoFile } from '../lib/queue';
 import { renderFramePreview } from '../lib/renderFrame';
 import ZoomOverlay from './ZoomOverlay';
 
@@ -47,8 +47,16 @@ const SinglePreview = ({
     if (zoomed || !canNavigate) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      // Don't hijack arrows while typing in the inspector's fields.
-      if (target && (target.tagName === 'INPUT' || target.isContentEditable)) return;
+      // Don't hijack arrows while typing in the inspector's fields, or while a
+      // video player has focus — <video controls> seeks with the same keys, so
+      // stepping the batch would steal the scrub the user asked for.
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'VIDEO' ||
+          target.isContentEditable)
+      )
+        return;
       if (event.key === 'ArrowRight') step(1);
       else if (event.key === 'ArrowLeft') step(-1);
     };
@@ -64,6 +72,11 @@ const SinglePreview = ({
   // shows immediately and is swapped out when this lands.
   useEffect(() => {
     if (!item?.frame || item.status !== 'done') return;
+    // A video's preview is the first composited frame the encode already
+    // produced. Re-rendering it here would hand decodeFile an MP4, which
+    // createImageBitmap rejects — caught below, but only after wasting a
+    // full-resolution render's worth of work on every selection change.
+    if (isVideoFile(item.file)) return;
     let cancelled = false;
 
     void renderFramePreview(item.file, item.frame, {
@@ -94,6 +107,17 @@ const SinglePreview = ({
   }
 
   const ready = item.status === 'done' && item.previewUrl;
+  const isVideo = isVideoFile(item.file);
+  // Only a finished encode has something to play. While one is running the
+  // still preview is all that exists, and a <video> pointed at nothing would
+  // render as a dead player with a broken-media icon where the poster is.
+  const playable = isVideo && item.status === 'done' && item.videoUrl;
+  // What the fallback <img> would be pointed at. For a video, sourceUrl is an
+  // object URL over MP4 bytes: an <img> cannot decode it, so the pane showed a
+  // broken-image icon for the whole encode — a minute or more — and forever if
+  // the encode failed before the first composited frame arrived. Only a real
+  // image is safe to hand to <img>.
+  const stillUrl = ready ? displayUrl : isVideo ? item.previewUrl : item.sourceUrl;
 
   return (
     // min-h-0 lets the image region actually shrink to the pane, so the
@@ -127,14 +151,45 @@ const SinglePreview = ({
           </>
         )}
 
-        <img
-          src={ready ? displayUrl : item.sourceUrl}
-          alt={item.file.name}
-          onClick={() => ready && setZoomed(true)}
-          className={`max-h-full w-auto max-w-full object-contain ${
-            ready ? 'cursor-zoom-in' : 'opacity-40'
-          }`}
-        />
+        {playable ? (
+          // key on the id so stepping to another item builds a fresh element
+          // rather than reusing this one: React would otherwise only swap the
+          // src on a playing player, and the old clip's audio keeps running
+          // over the new selection until the load actually lands.
+          <video
+            key={item.id}
+            src={item.videoUrl}
+            poster={item.previewUrl}
+            controls
+            playsInline
+            // Metadata only: the encode is already in memory as a blob, but
+            // pulling the whole thing in to show a poster we already have is
+            // work for a clip the user may never press play on.
+            preload="metadata"
+            aria-label={item.file.name}
+            className="max-h-full w-auto max-w-full object-contain"
+          />
+        ) : stillUrl ? (
+          <img
+            src={stillUrl}
+            alt={item.file.name}
+            onClick={() => ready && setZoomed(true)}
+            className={`max-h-full w-auto max-w-full object-contain ${
+              ready ? 'cursor-zoom-in' : 'opacity-40'
+            }`}
+          />
+        ) : (
+          // A video before its first composited frame exists. There is nothing
+          // to show yet — the source is MP4 bytes no <img> can decode — so the
+          // pane says so rather than rendering a broken image. The status line
+          // below carries the encode percentage.
+          <div className="flex flex-col items-center gap-2.5 text-ink-faint">
+            <Film className="h-8 w-8" strokeWidth={1.5} />
+            <p className="font-mono text-[12.5px]">
+              {item.status === 'error' ? 'Encode failed' : 'Preparing preview…'}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-none flex-col items-center gap-2">
@@ -146,9 +201,24 @@ const SinglePreview = ({
           )}
           <span>
             {item.file.name} · {frameLabelDetailed(item.frame)}
-            {item.status !== 'done' && ` · ${item.status}`}
+            {/* An encode runs for minutes, so the bare word "encoding" would
+                sit there looking stuck. The percentage is the only signal that
+                anything is still happening. */}
+            {item.status === 'encoding'
+              ? ` · encoding ${Math.round((item.video?.progress ?? 0) * 100)}%`
+              : item.status !== 'done' && ` · ${item.status}`}
           </span>
         </div>
+        {/* The failure reason, in the one view dedicated to a single item.
+            The status line above says only "error", which tells the user that
+            something went wrong but never what — and the Download button is
+            disabled with no explanation. Constrained in width so a long message
+            wraps into a readable column instead of stretching the pane. */}
+        {item.status === 'error' && item.error && (
+          <p className="max-w-md text-center font-mono text-xs-plus leading-snug text-danger">
+            {item.error}
+          </p>
+        )}
         <button
           type="button"
           onClick={() => onDownload(item)}

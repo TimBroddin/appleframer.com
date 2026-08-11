@@ -1,6 +1,6 @@
 import { memo } from 'react';
-import { Check, Maximize2, Plus } from 'lucide-react';
-import { groupItemsByDevice, QueueItem, frameLabel } from '../lib/queue';
+import { Check, Film, Maximize2, Plus } from 'lucide-react';
+import { groupItemsByDevice, QueueItem, frameLabel, isVideoFile } from '../lib/queue';
 
 interface ContactSheetProps {
   items: QueueItem[];
@@ -17,6 +17,7 @@ const STATUS_TEXT: Record<QueueItem['status'], string> = {
   detecting: 'detecting…',
   queued: 'queued',
   rendering: 'rendering',
+  encoding: 'encoding',
   done: 'done',
   error: 'failed',
   unmatched: 'no matching device',
@@ -26,6 +27,7 @@ const STATUS_CLASS: Record<QueueItem['status'], string> = {
   detecting: 'text-ink-faint',
   queued: 'text-ink-faint',
   rendering: 'text-accent',
+  encoding: 'text-accent',
   done: 'text-ink-soft',
   error: 'text-danger',
   unmatched: 'text-danger',
@@ -50,10 +52,23 @@ const Card = memo(function Card({
   onZoom: (id: string) => void;
 }) {
   // Show the framed render once it exists, falling back to the raw screenshot
-  // so a card is never empty while the queue works through the batch.
-  const src = item.previewUrl ?? item.sourceUrl;
+  // so a card is never empty while the queue works through the batch. A VIDEO
+  // has no such fallback: its sourceUrl is an object URL over MP4 bytes, which
+  // an <img> cannot decode, so using it would put a broken-image icon on the
+  // card for the whole encode instead of the placeholder below.
+  const src = item.previewUrl ?? (isVideoFile(item.file) ? undefined : item.sourceUrl);
 
+  // Zooming needs a still to show, which a finished video has too: its first
+  // composited frame is stored as previewUrl. Gating on previewUrl rather than
+  // on the file type is what lets the overlay stay unaware of video entirely.
   const canZoom = item.status === 'done' && Boolean(item.previewUrl);
+
+  // A percentage is only meaningful while encoding; every other state has no
+  // fraction to report and reads better as the bare word.
+  const statusText =
+    item.status === 'encoding'
+      ? `encoding ${Math.round((item.video?.progress ?? 0) * 100)}%`
+      : STATUS_TEXT[item.status];
 
   return (
     // A div rather than a button: the zoom control is itself a button, and
@@ -84,17 +99,50 @@ const Card = memo(function Card({
           {selected && <Check className="h-3 w-3" strokeWidth={3} />}
         </span>
 
-        <img
-          src={src}
-          alt={item.file.name}
-          className={`max-h-[184px] w-auto max-w-full object-contain transition-opacity ${
-            item.previewUrl ? 'opacity-100' : 'opacity-40'
-          }`}
-        />
+        {src ? (
+          <img
+            src={src}
+            alt={item.file.name}
+            className={`max-h-[184px] w-auto max-w-full object-contain transition-opacity ${
+              item.previewUrl ? 'opacity-100' : 'opacity-40'
+            }`}
+          />
+        ) : (
+          // A video before its first composited frame lands. The progress bar
+          // below already reports the encode, so this only has to fill the
+          // thumbnail with something that is not a broken image.
+          <div
+            className="flex h-[184px] items-center justify-center text-ink-faint"
+            role="img"
+            aria-label={item.file.name}
+          >
+            <Film className="h-7 w-7" strokeWidth={1.5} />
+          </div>
+        )}
 
+        {/* 'encoding' is in-progress too, and it is the state that lasts
+            minutes rather than milliseconds — omitting it left a video card
+            showing nothing at all for the entire encode. An encode reports real
+            progress, so it gets a determinate bar; a still render finishes too
+            fast for a fraction to mean anything and keeps the pulse. */}
         {item.status === 'rendering' && (
           <span className="absolute inset-x-2.5 bottom-2 h-[5px] overflow-hidden rounded-full bg-hairline">
             <span className="block h-full w-2/5 animate-af-pulse bg-accent" />
+          </span>
+        )}
+        {item.status === 'encoding' && (
+          <span
+            className="absolute inset-x-2.5 bottom-2 h-[5px] overflow-hidden rounded-full bg-hairline"
+            role="progressbar"
+            aria-label={`Encoding ${item.file.name}`}
+            aria-valuenow={Math.round((item.video?.progress ?? 0) * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <span
+              className="block h-full bg-accent transition-[width] duration-200"
+              style={{ width: `${Math.round((item.video?.progress ?? 0) * 100)}%` }}
+            />
           </span>
         )}
       </div>
@@ -106,10 +154,27 @@ const Card = memo(function Card({
         <div className={`mt-0.5 truncate font-mono text-2xs ${STATUS_CLASS[item.status]}`}>
           {/* Without a frame there is no device name to pair with the status,
               so show the status alone rather than "Detecting… · detecting…". */}
-          {item.frame
-            ? `${frameLabel(item.frame)} · ${STATUS_TEXT[item.status]}`
-            : STATUS_TEXT[item.status]}
+          {item.frame ? `${frameLabel(item.frame)} · ${statusText}` : statusText}
         </div>
+        {/* The reason, not just the fact. "failed" alone left the user with
+            nothing to act on and no way to tell an unsupported codec from a
+            browser limitation — diagnosing the encoder-size bug took browser
+            instrumentation precisely because this message existed but was
+            never rendered anywhere.
+
+            Wrapped rather than truncated: these messages end in the actionable
+            half ("Use Chrome, Edge…", "Try a different device"), so clipping
+            them would cut off the only part worth reading. Capped at three
+            lines so one long message cannot stretch a card out of the grid,
+            with the full text in `title` for the rare overflow. */}
+        {item.status === 'error' && item.error && (
+          <p
+            className="mt-1.5 line-clamp-3 font-mono text-2xs leading-snug text-danger"
+            title={item.error}
+          >
+            {item.error}
+          </p>
+        )}
       </div>
 
       {/* Stretched over the whole card so clicking anywhere selects. */}

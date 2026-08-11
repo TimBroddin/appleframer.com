@@ -1,5 +1,12 @@
 import { test, expect } from 'bun:test';
-import { frameLabel, frameLabelDetailed } from './queue';
+import {
+  FILE_ACCEPT_ATTRIBUTE,
+  frameLabel,
+  frameLabelDetailed,
+  isFramableFile,
+  isUnsupportedVideoFile,
+  isVideoFile,
+} from './queue';
 import { DeviceFrame } from '../hooks/useFrames';
 
 const make = (over: Partial<DeviceFrame>): DeviceFrame => ({
@@ -57,4 +64,78 @@ test('detailed label appends the colour', () => {
 test('falls back to the coordinate name when nothing else is set', () => {
   const frame = make({ category: '', model: '', version: undefined });
   expect(frameLabel(frame)).toBe('fallback');
+});
+
+const fileOf = (name: string, type: string) => new File([], name, { type });
+
+test('video MIME types are recognised', () => {
+  expect(isVideoFile(fileOf('demo.mp4', 'video/mp4'))).toBe(true);
+  expect(isVideoFile(fileOf('demo.mov', 'video/quicktime'))).toBe(true);
+});
+
+test('images are not videos', () => {
+  expect(isVideoFile(fileOf('shot.png', 'image/png'))).toBe(false);
+});
+
+test('falls back to the extension when the MIME type is missing', () => {
+  // Screen recordings dragged from some tools arrive with an empty type.
+  expect(isVideoFile(fileOf('demo.mp4', ''))).toBe(true);
+  expect(isVideoFile(fileOf('demo.MOV', ''))).toBe(true);
+  expect(isVideoFile(fileOf('shot.png', ''))).toBe(false);
+});
+
+test('a dropped video is accepted, not filtered out with the junk', () => {
+  // The regression this guards: filtering a drop to image/* silently discarded
+  // every screen recording before it reached the queue.
+  expect(isFramableFile(fileOf('demo.mp4', 'video/mp4'))).toBe(true);
+  expect(isFramableFile(fileOf('demo.mov', 'video/quicktime'))).toBe(true);
+  // Including the empty-type case, which is how some tools hand over a
+  // recording and which a MIME-only filter would reject.
+  expect(isFramableFile(fileOf('demo.mp4', ''))).toBe(true);
+});
+
+test('images are accepted and everything else is refused', () => {
+  expect(isFramableFile(fileOf('shot.png', 'image/png'))).toBe(true);
+  expect(isFramableFile(fileOf('shot.heic', 'image/heic'))).toBe(true);
+  expect(isFramableFile(fileOf('notes.pdf', 'application/pdf'))).toBe(false);
+  expect(isFramableFile(fileOf('.DS_Store', ''))).toBe(false);
+});
+
+test('containers the demuxer cannot read are refused at the door', () => {
+  // The regression this guards: a .webm probes fine through a <video> element,
+  // so it used to be accepted, matched to a device and queued, and only failed
+  // once the mp4box-only demuxer reached it mid-encode.
+  expect(isVideoFile(fileOf('demo.webm', 'video/webm'))).toBe(false);
+  expect(isFramableFile(fileOf('demo.webm', 'video/webm'))).toBe(false);
+  // The MIME check is an allow-list, so a webm carrying no extension is
+  // refused on its type alone rather than slipping through.
+  expect(isFramableFile(fileOf('recording', 'video/webm'))).toBe(false);
+  // And an extension-only webm, which is how a typeless drop arrives.
+  expect(isFramableFile(fileOf('demo.webm', ''))).toBe(false);
+});
+
+test('refused videos are distinguishable from junk so they can be explained', () => {
+  // A .webm must not be lumped in with the .DS_Store files the drop filter
+  // silently discards: the user picked a video deliberately and is owed a
+  // reason naming what would have worked.
+  expect(isUnsupportedVideoFile(fileOf('demo.webm', 'video/webm'))).toBe(true);
+  expect(isUnsupportedVideoFile(fileOf('demo.webm', ''))).toBe(true);
+  expect(isUnsupportedVideoFile(fileOf('demo.mkv', ''))).toBe(true);
+  // Formats that DO work are not reported as unsupported.
+  expect(isUnsupportedVideoFile(fileOf('demo.mp4', 'video/mp4'))).toBe(false);
+  expect(isUnsupportedVideoFile(fileOf('demo.mov', 'video/quicktime'))).toBe(false);
+  // Nor is ordinary junk, which keeps the generic message for the generic case.
+  expect(isUnsupportedVideoFile(fileOf('notes.pdf', 'application/pdf'))).toBe(false);
+  expect(isUnsupportedVideoFile(fileOf('.DS_Store', ''))).toBe(false);
+  expect(isUnsupportedVideoFile(fileOf('shot.png', 'image/png'))).toBe(false);
+});
+
+test('the picker advertises only formats that will be accepted', () => {
+  // A dialog that offered .webm and then rejected the choice would read as a
+  // bug in the app rather than a limit of the format.
+  expect(FILE_ACCEPT_ATTRIBUTE).toContain('image/*');
+  expect(FILE_ACCEPT_ATTRIBUTE).toContain('video/mp4');
+  expect(FILE_ACCEPT_ATTRIBUTE).toContain('.mov');
+  expect(FILE_ACCEPT_ATTRIBUTE).not.toContain('video/*');
+  expect(FILE_ACCEPT_ATTRIBUTE).not.toContain('webm');
 });
