@@ -8,6 +8,7 @@ import {
   PROBE_TIMEOUT_MS,
   progressFraction,
   timestampBase,
+  trackEditWindow,
   trackTimeShift,
 } from './renderVideo';
 
@@ -87,6 +88,65 @@ test('an empty edit followed by a real one combines both corrections', () => {
       1000
     )
   ).toBe(-56000);
+});
+
+test('a track with no edit list has nothing to cut', () => {
+  // Most files. This is what keeps the untrimmed path free of any filtering.
+  expect(trackEditWindow(undefined, 1000).end).toBe(Number.POSITIVE_INFINITY);
+  expect(trackEditWindow([], 1000).end).toBe(Number.POSITIVE_INFINITY);
+});
+
+test('a trimming edit ends where its segment does, so cut footage stays cut', () => {
+  // The measured failure: 4167ms of media behind an edit that selects 2000ms of
+  // it. Honouring only the shift restored all 122 frames instead of 60.
+  const window = trackEditWindow(
+    [
+      { segment_duration: 66, media_time: -1 },
+      { segment_duration: 2000, media_time: 1024 },
+    ],
+    1000
+  );
+  // The empty edit is lead time trackTimeShift already folded into the shift,
+  // so the media starts there rather than at zero.
+  expect(window.start).toBe(66_000);
+  expect(window.end).toBe(2_066_000);
+});
+
+test('an edit covering its whole media cuts nothing', () => {
+  // The ordinary encoder-delay edit list every recording carries. If this ever
+  // starts cutting, untrimmed exports lose their final frames.
+  const window = trackEditWindow([{ segment_duration: 4167, media_time: 1024 }], 1000);
+  expect(window.end).toBe(4_167_000);
+});
+
+test('a zero-duration edit is not read as a trim to the empty set', () => {
+  // Some writers leave segment_duration at 0 meaning "to the end". Treating it
+  // literally would drop every sample and export an empty video.
+  expect(trackEditWindow([{ segment_duration: 0, media_time: 0 }], 1000).end).toBe(
+    Number.POSITIVE_INFINITY
+  );
+});
+
+test('a list of nothing but empty edits leaves the track unbounded', () => {
+  // No media is selected at all, but a file this code has always exported must
+  // not silently become an empty one.
+  expect(trackEditWindow([{ segment_duration: 56, media_time: -1 }], 1000).end).toBe(
+    Number.POSITIVE_INFINITY
+  );
+});
+
+test('only the first real edit is honoured, so a cut list degrades to a prefix', () => {
+  // Multi-segment lists are explicitly unsupported. The guarantee under test is
+  // that the result is a PREFIX — short, never scrambled and never longer than
+  // the source claims — rather than the two segments concatenated wrongly.
+  const window = trackEditWindow(
+    [
+      { segment_duration: 1000, media_time: 0 },
+      { segment_duration: 1000, media_time: 5000 },
+    ],
+    1000
+  );
+  expect(window.end).toBe(1_000_000);
 });
 
 test('with no audio the base is the video start, so video rebases to zero', () => {

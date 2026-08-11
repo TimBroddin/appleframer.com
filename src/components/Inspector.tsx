@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Download } from 'lucide-react';
 import { DeviceFrame } from '../hooks/useFrames';
-import { QueueItem, findSibling, frameLabelDetailed } from '../lib/queue';
+import { QueueItem, findSibling, frameLabelDetailed, isVideoFile } from '../lib/queue';
 import { NameToken } from '../lib/filename';
 import DevicePicker from './DevicePicker';
 import NamingComposer from './NamingComposer';
@@ -142,8 +142,16 @@ const Inspector = ({
   };
 
   const hasSelection = selectedItems.length > 0;
-  // Unmatched images never render, so promising to zip them would be a lie.
-  const downloadableCount = items.filter((item) => item.status !== 'unmatched').length;
+  // Unmatched images never render, so promising to zip them would be a lie. A
+  // video whose encode FAILED is the same lie by a different route: it has a
+  // device, so it counted here, but there is no MP4 to put in the archive and
+  // the zip drops it. Excluding it is what makes this number match what the
+  // download actually contains. A still that errored is left in — its render is
+  // retried at export time and usually succeeds, so it is not a certain miss.
+  const downloadableCount = items.filter(
+    (item) =>
+      item.status !== 'unmatched' && !(item.status === 'error' && isVideoFile(item.file))
+  ).length;
 
   return (
     // relative + z-10 gives the inspector its own stacking context so its

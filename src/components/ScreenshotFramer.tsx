@@ -431,6 +431,7 @@ const ScreenshotFramer = ({
         // because each render is main-thread canvas work.
         let packed = 0;
         const unfinished: string[] = [];
+        const failed: string[] = [];
         for (let index = 0; index < ready.length; index++) {
           const item = ready[index];
           // A video cannot be re-rendered on demand the way a still can — the
@@ -439,7 +440,13 @@ const ScreenshotFramer = ({
           // would fail the WHOLE archive over one item.
           if (isVideoFile(item.file)) {
             if (!item.videoUrl) {
-              unfinished.push(item.file.name);
+              // A failed encode also has a frame and no videoUrl, so the two
+              // are indistinguishable by videoUrl alone — and calling a failure
+              // "still encoding" tells the user to wait for something that will
+              // never finish. The card already says it failed; the toast has to
+              // agree with it.
+              if (item.status === 'error') failed.push(item.file.name);
+              else unfinished.push(item.file.name);
               continue;
             }
             const encoded = await fetch(item.videoUrl).then((res) => res.blob());
@@ -459,6 +466,16 @@ const ScreenshotFramer = ({
             unfinished.length === 1
               ? `${unfinished[0]} is still encoding and was left out`
               : `${unfinished.length} videos were still encoding and were left out`
+          );
+        }
+        if (failed.length > 0) {
+          // error, not warning: a still-encoding video is a matter of waiting,
+          // whereas this one is not coming back without the user doing
+          // something, and the two should not read the same.
+          toast.error(
+            failed.length === 1
+              ? `${failed[0]} failed to encode and was left out`
+              : `${failed.length} videos failed to encode and were left out`
           );
         }
         if (packed === 0) {

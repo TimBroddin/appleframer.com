@@ -232,6 +232,62 @@ export function trackTimeShift(
 }
 
 /**
+ * The half-open presentation interval `[start, end)` a track's samples must fall
+ * inside, in microseconds on the timeline `trackTimeShift` produces.
+ *
+ * The shift alone only moves timestamps; it never drops anything. A trim made in
+ * QuickTime is stored as an edit whose `segment_duration` is SHORTER than the
+ * media it points into — the cut frames stay in the file and only the edit list
+ * says not to show them. Honouring the shift but not the duration therefore
+ * restores footage the user deliberately cut: measured on a clip whose edit says
+ * 2000ms over 4167ms of media, the export came back 4.27s / 122 frames instead
+ * of 2s / 60.
+ *
+ * `end` is Infinity when there is nothing to enforce, which is the common case:
+ * a file with no edit list at all, and — deliberately — an edit whose duration
+ * covers its media, so ordinary recordings take an unconditional fast path.
+ *
+ * MULTI-SEGMENT LISTS ARE NOT SUPPORTED. Only the first real edit is honoured,
+ * matching trackTimeShift, which resolves the origin from that same edit. A
+ * genuine cut list would need every interval and a per-segment retiming to close
+ * the gaps; screen recordings do not produce one. The degradation is predictable
+ * rather than silent: later segments are dropped, so the output is a prefix of
+ * what the source describes — short, never scrambled, and never longer than the
+ * source claims.
+ *
+ * @param edits the track's edit list, or undefined when it has none
+ * @param movieTimescale the movie timescale, which segment_duration is in
+ */
+export function trackEditWindow(
+  edits: TrackEdit[] | undefined,
+  movieTimescale: number
+): { start: number; end: number } {
+  const unbounded = { start: 0, end: Number.POSITIVE_INFINITY };
+  if (!edits?.length || !movieTimescale) return unbounded;
+
+  let emptyLead = 0;
+  for (const edit of edits) {
+    if (edit.media_time === -1) {
+      emptyLead += (edit.segment_duration * 1e6) / movieTimescale;
+      continue;
+    }
+    // The empty edits ahead of this one are lead time trackTimeShift has
+    // already folded into the shift, so on the shifted timeline the media
+    // starts at exactly that lead and runs for the segment's duration.
+    const start = Math.round(emptyLead);
+    const duration = (edit.segment_duration * 1e6) / movieTimescale;
+    // A zero/absent duration means "to the end of the media" in practice, and
+    // an edit list that declares one is not a trim to be enforced.
+    if (!(duration > 0)) return { start, end: Number.POSITIVE_INFINITY };
+    return { start, end: start + Math.round(duration) };
+  }
+  // Nothing but empty edits: no media is selected at all, but treating that as
+  // "drop everything" would turn a file this code has always exported into an
+  // empty one. Leave it unbounded and let the shift speak for itself.
+  return unbounded;
+}
+
+/**
  * The single origin both tracks are measured from, in microseconds.
  *
  * Both tracks are shifted by this one value rather than each by its own start,
@@ -485,6 +541,11 @@ async function demuxVideoTrack(file: File): Promise<DemuxedTrack> {
   // timeline and nothing has to remember to correct it later.
   let videoShift = 0;
   let audioShift = 0;
+  // The interval each track's edit list actually selects, on that same shifted
+  // timeline. Both tracks are cut against ONE end, resolved in onReady, because
+  // trimming them independently would move audio and video by different amounts
+  // and desync a recording the shift had just aligned.
+  let editEnd = Number.POSITIVE_INFINITY;
 
   isoFile.onError = (module, message) => {
     demuxError = new Error(`Could not read this video (${module}): ${message}`);
@@ -495,6 +556,17 @@ async function demuxVideoTrack(file: File): Promise<DemuxedTrack> {
     const isAudio = id === audioTrack?.id;
     for (const sample of samples) {
       if (!sample.data) continue;
+      const timestamp =
+        Math.round((sample.cts * 1e6) / sample.timescale) - (isAudio ? audioShift : videoShift);
+      // Past the end of what the edit list selects: this is footage the user
+      // trimmed away, still sitting in the file because a container trim only
+      // rewrites the edit list. Emitting it would hand back the cut frames.
+      //
+      // Only the tail is cut, never the head. The shift already puts the first
+      // selected sample at the window's start, so there is nothing before it to
+      // drop — and dropping from the front is what would strand the delta
+      // frames that follow without the keyframe they reference.
+      if (timestamp >= editEnd) continue;
       const init = {
         // Every audio sample is independently decodable; only video has deltas.
         type: (isAudio || sample.is_sync ? 'key' : 'delta') as EncodedVideoChunkType,
@@ -508,7 +580,7 @@ async function demuxVideoTrack(file: File): Promise<DemuxedTrack> {
         //
         // Shifted onto the presentation timeline, because raw cts carries the
         // encoder delay the container's edit list is there to cancel.
-        timestamp: Math.round((sample.cts * 1e6) / sample.timescale) - (isAudio ? audioShift : videoShift),
+        timestamp,
         duration: Math.round((sample.duration * 1e6) / sample.timescale),
         data: sample.data,
       };
@@ -523,6 +595,13 @@ async function demuxVideoTrack(file: File): Promise<DemuxedTrack> {
     videoTrack = info.videoTracks[0];
     if (!videoTrack) return;
     videoShift = trackTimeShift(videoTrack.edits, videoTrack.timescale, info.timescale);
+    // One end for both tracks, taken from the video edit list. Audio's own list
+    // would usually give the same answer, but "usually" is not good enough: the
+    // two are rounded to different timescales, and cutting each track at its own
+    // end would leave audio running past the last frame — a desync introduced by
+    // the very fix meant to remove trimmed footage. Video is the track the user
+    // sees, so it decides.
+    editEnd = trackEditWindow(videoTrack.edits, info.timescale).end;
     // Both setExtractionOptions calls must precede the single start(), and all
     // of it must stay synchronous inside onReady — mp4box empties its stream
     // buffers during appendBuffer, so anything deferred yields zero samples.

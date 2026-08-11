@@ -1,6 +1,6 @@
 import { memo } from 'react';
-import { Check, Maximize2, Plus } from 'lucide-react';
-import { groupItemsByDevice, QueueItem, frameLabel } from '../lib/queue';
+import { Check, Film, Maximize2, Plus } from 'lucide-react';
+import { groupItemsByDevice, QueueItem, frameLabel, isVideoFile } from '../lib/queue';
 
 interface ContactSheetProps {
   items: QueueItem[];
@@ -52,8 +52,11 @@ const Card = memo(function Card({
   onZoom: (id: string) => void;
 }) {
   // Show the framed render once it exists, falling back to the raw screenshot
-  // so a card is never empty while the queue works through the batch.
-  const src = item.previewUrl ?? item.sourceUrl;
+  // so a card is never empty while the queue works through the batch. A VIDEO
+  // has no such fallback: its sourceUrl is an object URL over MP4 bytes, which
+  // an <img> cannot decode, so using it would put a broken-image icon on the
+  // card for the whole encode instead of the placeholder below.
+  const src = item.previewUrl ?? (isVideoFile(item.file) ? undefined : item.sourceUrl);
 
   // Zooming needs a still to show, which a finished video has too: its first
   // composited frame is stored as previewUrl. Gating on previewUrl rather than
@@ -96,13 +99,26 @@ const Card = memo(function Card({
           {selected && <Check className="h-3 w-3" strokeWidth={3} />}
         </span>
 
-        <img
-          src={src}
-          alt={item.file.name}
-          className={`max-h-[184px] w-auto max-w-full object-contain transition-opacity ${
-            item.previewUrl ? 'opacity-100' : 'opacity-40'
-          }`}
-        />
+        {src ? (
+          <img
+            src={src}
+            alt={item.file.name}
+            className={`max-h-[184px] w-auto max-w-full object-contain transition-opacity ${
+              item.previewUrl ? 'opacity-100' : 'opacity-40'
+            }`}
+          />
+        ) : (
+          // A video before its first composited frame lands. The progress bar
+          // below already reports the encode, so this only has to fill the
+          // thumbnail with something that is not a broken image.
+          <div
+            className="flex h-[184px] items-center justify-center text-ink-faint"
+            role="img"
+            aria-label={item.file.name}
+          >
+            <Film className="h-7 w-7" strokeWidth={1.5} />
+          </div>
+        )}
 
         {/* 'encoding' is in-progress too, and it is the state that lasts
             minutes rather than milliseconds — omitting it left a video card
