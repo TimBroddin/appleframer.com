@@ -424,6 +424,9 @@ const FINISH_SWATCHES: Record<string, string> = {
   'light gold': '#d8c095',
   'sky blue': '#a8c4d9',
   'space black': '#26262a',
+  // iPhone 18 Pro / Pro Max (Black and Silver share the entries above)
+  burgundy: '#6b2d3a',
+  glacier: '#c4d1e3',
 };
 
 function colorSwatch(color: string): string {

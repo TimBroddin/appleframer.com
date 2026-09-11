@@ -1,6 +1,7 @@
 import { test, expect } from 'bun:test';
 import {
   FILE_ACCEPT_ATTRIBUTE,
+  findFrameByScreenshotSize,
   frameLabel,
   frameLabelDetailed,
   isFramableFile,
@@ -64,6 +65,52 @@ test('detailed label appends the colour', () => {
 test('falls back to the coordinate name when nothing else is set', () => {
   const frame = make({ category: '', model: '', version: undefined });
   expect(frameLabel(frame)).toBe('fallback');
+});
+
+const sized = (over: Partial<DeviceFrame>, width: number, height: number): DeviceFrame =>
+  make({
+    ...over,
+    coordinates: { x: '0', y: '0', name: 'x', screenshotWidth: width, screenshotHeight: height },
+  });
+
+test('a screenshot size shared across generations resolves to the newest iPhone', () => {
+  // 1206x2622 is the 16 Pro, 17 Pro and 18 Pro alike. The list is sorted oldest
+  // first, so taking the first match labelled every new screenshot a 16 Pro.
+  const frames = [
+    sized({ id: '16-pro', model: '16', version: 'Pro' }, 1206, 2622),
+    sized({ id: '17-pro', model: '17', version: 'Pro', color: 'Cosmic Orange' }, 1206, 2622),
+    sized({ id: '18-pro-black', model: '18', version: 'Pro', color: 'Black' }, 1206, 2622),
+    sized({ id: '18-pro-silver', model: '18', version: 'Pro', color: 'Silver' }, 1206, 2622),
+  ];
+  // Among the newest, list order still decides, so the first finish wins.
+  expect(findFrameByScreenshotSize(frames, 1206, 2622)?.id).toBe('18-pro-black');
+});
+
+test('the newest iPhone wins wherever it sits in the list', () => {
+  const frames = [
+    sized({ id: '18-pro', model: '18', version: 'Pro' }, 1206, 2622),
+    sized({ id: '16-pro', model: '16', version: 'Pro' }, 1206, 2622),
+    sized({ id: '12-13-pro', model: '12-13', version: 'Pro' }, 1206, 2622),
+  ];
+  expect(findFrameByScreenshotSize(frames, 1206, 2622)?.id).toBe('18-pro');
+});
+
+test('ties outside iPhone keep list order', () => {
+  // Watch Series 10 46mm and Ultra 2024 share 410x502. There is no generation
+  // number to compare, so detection keeps its existing first-match answer.
+  const frames = [
+    sized(
+      { id: 'series-10-46', category: 'Watch', model: 'Series', version: '10', variant: '46' },
+      410,
+      502
+    ),
+    sized({ id: 'ultra-2024', category: 'Watch', model: 'Ultra', version: '2024' }, 410, 502),
+  ];
+  expect(findFrameByScreenshotSize(frames, 410, 502)?.id).toBe('series-10-46');
+});
+
+test('a size no device uses finds nothing', () => {
+  expect(findFrameByScreenshotSize([sized({}, 1206, 2622)], 1000, 1000)).toBeUndefined();
 });
 
 const fileOf = (name: string, type: string) => new File([], name, { type });

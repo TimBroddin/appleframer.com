@@ -155,21 +155,46 @@ export function isFramableFile(file: File): boolean {
 /** Matching tolerance in pixels for auto-detecting a device from screenshot size. */
 const TOLERANCE = 2;
 
+/**
+ * Generation number of an iPhone frame, used to break screenshot-size ties.
+ *
+ * Several generations share a screenshot size (the 16 Pro, 17 Pro and 18 Pro
+ * are all 1206x2622), so size alone cannot say which phone took a screenshot,
+ * and the newest is the likeliest. "12-13" counts as 12. Non-numeric models
+ * (the Air) and other categories have no generation and never win a tie.
+ */
+function iPhoneGeneration(frame: DeviceFrame): number {
+  if (frame.category !== 'iPhone') return -Infinity;
+  const generation = parseInt(frame.model, 10);
+  return Number.isNaN(generation) ? -Infinity : generation;
+}
+
+/**
+ * The frame a screenshot of this size was most likely taken on.
+ *
+ * When several devices share the size, the newest iPhone generation wins.
+ * Otherwise, and among frames of the same generation, list order decides, which
+ * is what keeps the first finish of a model as the default.
+ */
 export function findFrameByScreenshotSize(
   frames: DeviceFrame[],
   width: number,
   height: number
 ): DeviceFrame | undefined {
-  return frames.find((frame) => {
+  let best: DeviceFrame | undefined;
+  for (const frame of frames) {
     const fw = frame.coordinates.screenshotWidth;
     const fh = frame.coordinates.screenshotHeight;
-    return (
+    const matches =
       typeof fw === 'number' &&
       typeof fh === 'number' &&
       Math.abs(fw - width) <= TOLERANCE &&
-      Math.abs(fh - height) <= TOLERANCE
-    );
-  });
+      Math.abs(fh - height) <= TOLERANCE;
+    if (matches && (!best || iPhoneGeneration(frame) > iPhoneGeneration(best))) {
+      best = frame;
+    }
+  }
+  return best;
 }
 
 /**

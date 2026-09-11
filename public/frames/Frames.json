@@ -290,82 +290,216 @@
       "Standard": {
         "Black": {
           "Portrait": {
-            "x": "90",
-            "y": "90",
+            "x": "72",
+            "y": "69",
             "name": "iPhone 17 - Black - Portrait",
-            "screenshotWidth": 1179,
-            "screenshotHeight": 2556
+            "screenshotWidth": 1206,
+            "screenshotHeight": 2622
           },
           "Landscape": {
-            "x": "90",
-            "y": "90",
+            "x": "69",
+            "y": "72",
             "name": "iPhone 17 - Black - Landscape",
-            "screenshotWidth": 2556,
-            "screenshotHeight": 1179
+            "screenshotWidth": 2622,
+            "screenshotHeight": 1206
           }
         },
         "Lavender": {
           "Portrait": {
-            "x": "90",
-            "y": "90",
+            "x": "72",
+            "y": "69",
             "name": "iPhone 17 - Lavender - Portrait",
-            "screenshotWidth": 1179,
-            "screenshotHeight": 2556
+            "screenshotWidth": 1206,
+            "screenshotHeight": 2622
           },
           "Landscape": {
-            "x": "90",
-            "y": "90",
+            "x": "69",
+            "y": "72",
             "name": "iPhone 17 - Lavender - Landscape",
-            "screenshotWidth": 2556,
-            "screenshotHeight": 1179
+            "screenshotWidth": 2622,
+            "screenshotHeight": 1206
           }
         },
         "Mist Blue": {
           "Portrait": {
-            "x": "90",
-            "y": "90",
+            "x": "72",
+            "y": "69",
             "name": "iPhone 17 - Mist Blue - Portrait",
-            "screenshotWidth": 1179,
-            "screenshotHeight": 2556
+            "screenshotWidth": 1206,
+            "screenshotHeight": 2622
           },
           "Landscape": {
-            "x": "90",
-            "y": "90",
+            "x": "69",
+            "y": "72",
             "name": "iPhone 17 - Mist Blue - Landscape",
-            "screenshotWidth": 2556,
-            "screenshotHeight": 1179
+            "screenshotWidth": 2622,
+            "screenshotHeight": 1206
           }
         },
         "Sage": {
           "Portrait": {
-            "x": "90",
-            "y": "90",
+            "x": "72",
+            "y": "69",
             "name": "iPhone 17 - Sage - Portrait",
-            "screenshotWidth": 1179,
-            "screenshotHeight": 2556
+            "screenshotWidth": 1206,
+            "screenshotHeight": 2622
           },
           "Landscape": {
-            "x": "90",
-            "y": "90",
+            "x": "69",
+            "y": "72",
             "name": "iPhone 17 - Sage - Landscape",
-            "screenshotWidth": 2556,
-            "screenshotHeight": 1179
+            "screenshotWidth": 2622,
+            "screenshotHeight": 1206
           }
         },
         "White": {
           "Portrait": {
-            "x": "90",
-            "y": "90",
+            "x": "72",
+            "y": "69",
             "name": "iPhone 17 - White - Portrait",
-            "screenshotWidth": 1179,
-            "screenshotHeight": 2556
+            "screenshotWidth": 1206,
+            "screenshotHeight": 2622
           },
           "Landscape": {
-            "x": "90",
-            "y": "90",
+            "x": "69",
+            "y": "72",
             "name": "iPhone 17 - White - Landscape",
-            "screenshotWidth": 2556,
-            "screenshotHeight": 1179
+            "screenshotWidth": 2622,
+            "screenshotHeight": 1206
+          }
+        }
+      }
+    },
+    "18": {
+      "Pro Max": {
+        "Black": {
+          "Portrait": {
+            "x": "75",
+            "y": "66",
+            "name": "iPhone 18 Pro Max - Black - Portrait",
+            "screenshotWidth": 1320,
+            "screenshotHeight": 2868
+          },
+          "Landscape": {
+            "x": "66",
+            "y": "76",
+            "name": "iPhone 18 Pro Max - Black - Landscape",
+            "screenshotWidth": 2868,
+            "screenshotHeight": 1320
+          }
+        },
+        "Burgundy": {
+          "Portrait": {
+            "x": "75",
+            "y": "66",
+            "name": "iPhone 18 Pro Max - Burgundy - Portrait",
+            "screenshotWidth": 1320,
+            "screenshotHeight": 2868
+          },
+          "Landscape": {
+            "x": "66",
+            "y": "76",
+            "name": "iPhone 18 Pro Max - Burgundy - Landscape",
+            "screenshotWidth": 2868,
+            "screenshotHeight": 1320
+          }
+        },
+        "Glacier": {
+          "Portrait": {
+            "x": "75",
+            "y": "66",
+            "name": "iPhone 18 Pro Max - Glacier - Portrait",
+            "screenshotWidth": 1320,
+            "screenshotHeight": 2868
+          },
+          "Landscape": {
+            "x": "66",
+            "y": "76",
+            "name": "iPhone 18 Pro Max - Glacier - Landscape",
+            "screenshotWidth": 2868,
+            "screenshotHeight": 1320
+          }
+        },
+        "Silver": {
+          "Portrait": {
+            "x": "75",
+            "y": "66",
+            "name": "iPhone 18 Pro Max - Silver - Portrait",
+            "screenshotWidth": 1320,
+            "screenshotHeight": 2868
+          },
+          "Landscape": {
+            "x": "66",
+            "y": "76",
+            "name": "iPhone 18 Pro Max - Silver - Landscape",
+            "screenshotWidth": 2868,
+            "screenshotHeight": 1320
+          }
+        }
+      },
+      "Pro": {
+        "Black": {
+          "Portrait": {
+            "x": "72",
+            "y": "69",
+            "name": "iPhone 18 Pro - Black - Portrait",
+            "screenshotWidth": 1206,
+            "screenshotHeight": 2622
+          },
+          "Landscape": {
+            "x": "69",
+            "y": "72",
+            "name": "iPhone 18 Pro - Black - Landscape",
+            "screenshotWidth": 2622,
+            "screenshotHeight": 1206
+          }
+        },
+        "Burgundy": {
+          "Portrait": {
+            "x": "72",
+            "y": "69",
+            "name": "iPhone 18 Pro - Burgundy - Portrait",
+            "screenshotWidth": 1206,
+            "screenshotHeight": 2622
+          },
+          "Landscape": {
+            "x": "69",
+            "y": "72",
+            "name": "iPhone 18 Pro - Burgundy - Landscape",
+            "screenshotWidth": 2622,
+            "screenshotHeight": 1206
+          }
+        },
+        "Glacier": {
+          "Portrait": {
+            "x": "72",
+            "y": "69",
+            "name": "iPhone 18 Pro - Glacier - Portrait",
+            "screenshotWidth": 1206,
+            "screenshotHeight": 2622
+          },
+          "Landscape": {
+            "x": "69",
+            "y": "72",
+            "name": "iPhone 18 Pro - Glacier - Landscape",
+            "screenshotWidth": 2622,
+            "screenshotHeight": 1206
+          }
+        },
+        "Silver": {
+          "Portrait": {
+            "x": "72",
+            "y": "69",
+            "name": "iPhone 18 Pro - Silver - Portrait",
+            "screenshotWidth": 1206,
+            "screenshotHeight": 2622
+          },
+          "Landscape": {
+            "x": "69",
+            "y": "72",
+            "name": "iPhone 18 Pro - Silver - Landscape",
+            "screenshotWidth": 2622,
+            "screenshotHeight": 1206
           }
         }
       }
