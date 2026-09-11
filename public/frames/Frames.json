@@ -571,6 +571,96 @@
           }
         }
       }
+    },
+    "Duo": {
+      "Inner": {
+        "Night Sky": {
+          "Portrait": {
+            "x": "120",
+            "y": "120",
+            "name": "iPhone Duo Inner - Night Sky - Portrait",
+            "screenshotWidth": 2007,
+            "screenshotHeight": 2853
+          },
+          "Landscape": {
+            "x": "120",
+            "y": "120",
+            "name": "iPhone Duo Inner - Night Sky - Landscape",
+            "screenshotWidth": 2853,
+            "screenshotHeight": 2007
+          }
+        },
+        "Star White": {
+          "Portrait": {
+            "x": "120",
+            "y": "120",
+            "name": "iPhone Duo Inner - Star White - Portrait",
+            "screenshotWidth": 2007,
+            "screenshotHeight": 2853
+          },
+          "Landscape": {
+            "x": "120",
+            "y": "120",
+            "name": "iPhone Duo Inner - Star White - Landscape",
+            "screenshotWidth": 2853,
+            "screenshotHeight": 2007
+          }
+        }
+      },
+      "Outer": {
+        "Night Sky": {
+          "Portrait": {
+            "x": "88",
+            "y": "80",
+            "name": "iPhone Duo Outer - Night Sky - Portrait",
+            "screenshotWidth": 1398,
+            "screenshotHeight": 2034
+          },
+          "Landscape": {
+            "x": "80",
+            "y": "88",
+            "name": "iPhone Duo Outer - Night Sky - Landscape",
+            "screenshotWidth": 2034,
+            "screenshotHeight": 1398
+          }
+        },
+        "Star White": {
+          "Portrait": {
+            "x": "88",
+            "y": "80",
+            "name": "iPhone Duo Outer - Star White - Portrait",
+            "screenshotWidth": 1398,
+            "screenshotHeight": 2034
+          },
+          "Landscape": {
+            "x": "80",
+            "y": "88",
+            "name": "iPhone Duo Outer - Star White - Landscape",
+            "screenshotWidth": 2034,
+            "screenshotHeight": 1398
+          }
+        }
+      },
+      "Outer Open": {
+        "Night Sky": {
+          "Portrait": {
+            "x": "1570",
+            "y": "80",
+            "name": "iPhone Duo Outer Open - Night Sky - Portrait",
+            "screenshotWidth": 1398,
+            "screenshotHeight": 2034
+          }
+        },
+        "Star White": {
+          "Portrait": {
+            "x": "1570",
+            "y": "80",
+            "name": "iPhone Duo Outer Open - Star White - Portrait",
+            "screenshotWidth": 1398,
+            "screenshotHeight": 2034
+          }
+        }
+      }
     }
   },
   "iPad": {

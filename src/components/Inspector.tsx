@@ -1,7 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
 import { Download } from 'lucide-react';
 import { DeviceFrame } from '../hooks/useFrames';
-import { QueueItem, findSibling, frameLabelDetailed, isVideoFile } from '../lib/queue';
+import {
+  QueueItem,
+  findSibling,
+  frameLabelDetailed,
+  isVideoFile,
+  orientationsFor,
+  screensFor,
+} from '../lib/queue';
 import { NameToken } from '../lib/filename';
 import DevicePicker from './DevicePicker';
 import NamingComposer from './NamingComposer';
@@ -108,24 +115,16 @@ const Inspector = ({
     );
   }, [frames, commonFrame]);
 
-  const orientations = useMemo(() => {
-    if (!commonFrame) return [];
-    return Array.from(
-      new Set(
-        frames
-          .filter(
-            (f) =>
-              f.category === commonFrame.category &&
-              f.model === commonFrame.model &&
-              f.version === commonFrame.version &&
-              f.variant === commonFrame.variant &&
-              f.color === commonFrame.color &&
-              f.orientation
-          )
-          .map((f) => f.orientation as 'Portrait' | 'Landscape')
-      )
-    );
-  }, [frames, commonFrame]);
+  const orientations = useMemo(
+    () => (commonFrame ? orientationsFor(frames, commonFrame) : []),
+    [frames, commonFrame]
+  );
+
+  /** The Duo's inner and outer screens; empty for every other device. */
+  const screens = useMemo(
+    () => (commonFrame ? screensFor(frames, commonFrame) : []),
+    [frames, commonFrame]
+  );
 
   const selectCategory = (category: string) => {
     const target = frames.find((frame) => frame.category === category);
@@ -279,10 +278,40 @@ const Inspector = ({
               </div>
             )}
 
+            {screens.length > 1 && commonFrame && (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-hairline px-3 py-2 text-[13px]">
+                <span className="flex-none text-ink-soft">Screen</span>
+                <span className="flex flex-wrap justify-end gap-1">
+                  {screens.map((screen) => {
+                    const sibling = findSibling(frames, commonFrame, { version: screen });
+                    const active = commonFrame.version === screen;
+                    return (
+                      <button
+                        key={screen}
+                        type="button"
+                        onClick={() => sibling && onSetFrame(sibling)}
+                        className={`rounded-md px-2 py-1 text-sm-minus transition-colors ${
+                          active
+                            ? 'bg-accent font-semibold text-white'
+                            : 'bg-surface-muted text-ink-soft hover:text-ink'
+                        }`}
+                      >
+                        {screen}
+                      </button>
+                    );
+                  })}
+                </span>
+              </div>
+            )}
+
             {orientations.length > 1 && commonFrame && (
               <div className="flex gap-1.5">
                 {orientations.map((orientation) => {
-                  const sibling = findSibling(frames, commonFrame, { orientation });
+                  // findSibling falls back to another orientation when this
+                  // screen has none (the Duo's Outer Open is portrait only), so
+                  // only an exact match counts as available.
+                  const found = findSibling(frames, commonFrame, { orientation });
+                  const sibling = found?.orientation === orientation ? found : undefined;
                   const active = commonFrame.orientation === orientation;
                   return (
                     <button
@@ -427,6 +456,8 @@ const FINISH_SWATCHES: Record<string, string> = {
   // iPhone 18 Pro / Pro Max (Black and Silver share the entries above)
   burgundy: '#6b2d3a',
   glacier: '#c4d1e3',
+  // iPhone Duo (Star White falls back to the white keyword below)
+  'night sky': '#2c3647',
 };
 
 function colorSwatch(color: string): string {

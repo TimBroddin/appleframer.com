@@ -2,11 +2,14 @@ import { test, expect } from 'bun:test';
 import {
   FILE_ACCEPT_ATTRIBUTE,
   findFrameByScreenshotSize,
+  findSibling,
   frameLabel,
   frameLabelDetailed,
   isFramableFile,
   isUnsupportedVideoFile,
   isVideoFile,
+  orientationsFor,
+  screensFor,
 } from './queue';
 import { DeviceFrame } from '../hooks/useFrames';
 
@@ -111,6 +114,86 @@ test('ties outside iPhone keep list order', () => {
 
 test('a size no device uses finds nothing', () => {
   expect(findFrameByScreenshotSize([sized({}, 1206, 2622)], 1000, 1000)).toBeUndefined();
+});
+
+const duo = (
+  screen: string,
+  color: string,
+  orientation: 'Portrait' | 'Landscape',
+  width: number,
+  height: number
+) =>
+  sized(
+    { id: `duo-${screen}-${color}-${orientation}`, model: 'Duo', version: screen, color, orientation },
+    width,
+    height
+  );
+
+// Same shape and order as Frames.json: Outer Open exists in portrait only.
+const DUO = [
+  duo('Inner', 'Night Sky', 'Portrait', 2007, 2853),
+  duo('Inner', 'Night Sky', 'Landscape', 2853, 2007),
+  duo('Inner', 'Star White', 'Portrait', 2007, 2853),
+  duo('Inner', 'Star White', 'Landscape', 2853, 2007),
+  duo('Outer', 'Night Sky', 'Portrait', 1398, 2034),
+  duo('Outer', 'Night Sky', 'Landscape', 2034, 1398),
+  duo('Outer', 'Star White', 'Portrait', 1398, 2034),
+  duo('Outer', 'Star White', 'Landscape', 2034, 1398),
+  duo('Outer Open', 'Night Sky', 'Portrait', 1398, 2034),
+  duo('Outer Open', 'Star White', 'Portrait', 1398, 2034),
+];
+const duoFrame = (id: string) => DUO.find((frame) => frame.id === id)!;
+
+test('the Duo offers its screens; other devices offer none', () => {
+  expect(screensFor(DUO, duoFrame('duo-Inner-Night Sky-Portrait'))).toEqual([
+    'Inner',
+    'Outer',
+    'Outer Open',
+  ]);
+  // Pro and Pro Max are sizes of different phones, not screens of one phone.
+  const pro = sized({ model: '18', version: 'Pro', color: 'Black', orientation: 'Portrait' }, 1206, 2622);
+  const proMax = sized({ model: '18', version: 'Pro Max', color: 'Black', orientation: 'Portrait' }, 1320, 2868);
+  expect(screensFor([pro, proMax], pro)).toEqual([]);
+});
+
+test('switching the Duo screen keeps the finish and the orientation', () => {
+  expect(
+    findSibling(DUO, duoFrame('duo-Inner-Star White-Landscape'), { version: 'Outer' })?.id
+  ).toBe('duo-Outer-Star White-Landscape');
+});
+
+test('a screen without the current orientation falls back but keeps the finish', () => {
+  expect(
+    findSibling(DUO, duoFrame('duo-Inner-Star White-Landscape'), { version: 'Outer Open' })?.id
+  ).toBe('duo-Outer Open-Star White-Portrait');
+});
+
+test('the Duo keeps both orientations on offer, even on a portrait-only screen', () => {
+  // Hiding the row on Outer Open would make Landscape vanish rather than read
+  // as unavailable, and the row would jump in and out as the screen changes.
+  expect(orientationsFor(DUO, duoFrame('duo-Outer Open-Night Sky-Portrait'))).toEqual([
+    'Portrait',
+    'Landscape',
+  ]);
+  // Landscape has no Outer Open frame to switch to, which is what greys it out.
+  expect(
+    findSibling(DUO, duoFrame('duo-Outer Open-Night Sky-Portrait'), { orientation: 'Landscape' })
+      ?.orientation
+  ).toBe('Portrait');
+});
+
+test('other devices only offer the orientations their own model has', () => {
+  const portraitOnly = sized({ model: '8', version: 'Standard', orientation: 'Portrait' }, 750, 1334);
+  const otherModel = sized({ model: '8', version: 'Plus', orientation: 'Landscape' }, 1920, 1080);
+  expect(orientationsFor([portraitOnly, otherModel], portraitOnly)).toEqual(['Portrait']);
+});
+
+test('Duo screenshots detect the screen they were taken on', () => {
+  expect(findFrameByScreenshotSize(DUO, 2007, 2853)?.version).toBe('Inner');
+  expect(findFrameByScreenshotSize(DUO, 2034, 1398)?.version).toBe('Outer');
+  // Outer and Outer Open share the outer display, so list order makes the
+  // plain folded phone the default.
+  expect(findFrameByScreenshotSize(DUO, 1398, 2034)?.version).toBe('Outer');
 });
 
 const fileOf = (name: string, type: string) => new File([], name, { type });

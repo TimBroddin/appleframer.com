@@ -4,7 +4,8 @@ Frame your Apple device screenshots with a beautiful device bezel. All processin
 
 ## Features
 - Frame iPhone, iPad, and Apple Watch screenshots in realistic Apple device mockups
-- Device color selection for iPhone 16, 17, and iPhone Air
+- Device color selection for iPhone 17, iPhone 18 Pro, iPhone Air, and iPhone Duo
+- iPhone Duo inner display, outer display, and open views
 - Auto-detects device from screenshot size
 - Remembers last selected device across sessions
 - Custom filename patterns with variables for device, color, and orientation
