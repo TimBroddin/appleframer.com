@@ -155,21 +155,46 @@ export function isFramableFile(file: File): boolean {
 /** Matching tolerance in pixels for auto-detecting a device from screenshot size. */
 const TOLERANCE = 2;
 
+/**
+ * Generation number of an iPhone frame, used to break screenshot-size ties.
+ *
+ * Several generations share a screenshot size (the 16 Pro, 17 Pro and 18 Pro
+ * are all 1206x2622), so size alone cannot say which phone took a screenshot,
+ * and the newest is the likeliest. "12-13" counts as 12. Non-numeric models
+ * (the Air) and other categories have no generation and never win a tie.
+ */
+function iPhoneGeneration(frame: DeviceFrame): number {
+  if (frame.category !== 'iPhone') return -Infinity;
+  const generation = parseInt(frame.model, 10);
+  return Number.isNaN(generation) ? -Infinity : generation;
+}
+
+/**
+ * The frame a screenshot of this size was most likely taken on.
+ *
+ * When several devices share the size, the newest iPhone generation wins.
+ * Otherwise, and among frames of the same generation, list order decides, which
+ * is what keeps the first finish of a model as the default.
+ */
 export function findFrameByScreenshotSize(
   frames: DeviceFrame[],
   width: number,
   height: number
 ): DeviceFrame | undefined {
-  return frames.find((frame) => {
+  let best: DeviceFrame | undefined;
+  for (const frame of frames) {
     const fw = frame.coordinates.screenshotWidth;
     const fh = frame.coordinates.screenshotHeight;
-    return (
+    const matches =
       typeof fw === 'number' &&
       typeof fh === 'number' &&
       Math.abs(fw - width) <= TOLERANCE &&
-      Math.abs(fh - height) <= TOLERANCE
-    );
-  });
+      Math.abs(fh - height) <= TOLERANCE;
+    if (matches && (!best || iPhoneGeneration(frame) > iPhoneGeneration(best))) {
+      best = frame;
+    }
+  }
+  return best;
 }
 
 /**
@@ -231,14 +256,15 @@ export function displayOrder(items: QueueItem[], groupByDevice: boolean): QueueI
 /**
  * Finds the equivalent frame with one facet changed, keeping the rest fixed.
  *
- * Switching size or colour may have no exact counterpart — an 11" iPad might
- * not offer the colour the 13" was using — so the match falls back
- * progressively rather than returning nothing and disabling the control.
+ * Switching size, colour or screen may have no exact counterpart — an 11" iPad
+ * might not offer the colour the 13" was using, and the Duo's Outer Open has no
+ * landscape frame — so the match falls back progressively rather than
+ * returning nothing and disabling the control.
  */
 export function findSibling(
   frames: DeviceFrame[],
   frame: DeviceFrame,
-  patch: Partial<Pick<DeviceFrame, 'orientation' | 'color' | 'variant'>>
+  patch: Partial<Pick<DeviceFrame, 'orientation' | 'color' | 'variant' | 'version'>>
 ): DeviceFrame | undefined {
   const target = { ...frame, ...patch };
   const sameModel = frames.filter(
@@ -258,5 +284,57 @@ export function findSibling(
     sameModel.find((c) => c.orientation === target.orientation) ??
     sameModel.find((c) => c.color === target.color) ??
     sameModel[0]
+  );
+}
+
+/**
+ * Whether a device's frames are different screens of one phone rather than
+ * different phones. The Duo's Inner, Outer and Outer Open views sit in the
+ * version slot that Pro and Pro Max use, but they are screens of the same
+ * device, so the inspector offers them as a row of their own.
+ */
+function hasScreenChoice(frame: DeviceFrame): boolean {
+  return frame.category === 'iPhone' && frame.model === 'Duo';
+}
+
+/** The screens a device can be framed on, in list order; empty unless it has a choice. */
+export function screensFor(frames: DeviceFrame[], frame: DeviceFrame): string[] {
+  if (!hasScreenChoice(frame)) return [];
+  return Array.from(
+    new Set(
+      frames
+        .filter((f) => f.category === frame.category && f.model === frame.model && f.version)
+        .map((f) => f.version as string)
+    )
+  );
+}
+
+/**
+ * The orientations the inspector offers for a frame's finish.
+ *
+ * Normally that is what the frame's own model and size come in. A device with a
+ * screen choice offers every orientation any of its screens has, so the row
+ * does not vanish on a portrait-only screen; the missing one reads as
+ * unavailable instead.
+ */
+export function orientationsFor(
+  frames: DeviceFrame[],
+  frame: DeviceFrame
+): Array<'Portrait' | 'Landscape'> {
+  const acrossScreens = hasScreenChoice(frame);
+  return Array.from(
+    new Set(
+      frames
+        .filter(
+          (f) =>
+            f.category === frame.category &&
+            f.model === frame.model &&
+            (acrossScreens || f.version === frame.version) &&
+            f.variant === frame.variant &&
+            f.color === frame.color &&
+            f.orientation
+        )
+        .map((f) => f.orientation as 'Portrait' | 'Landscape')
+    )
   );
 }
